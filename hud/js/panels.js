@@ -14,45 +14,71 @@ AGENTS.forEach(a => {
   b.innerHTML = `<span class="ring" style="color:${a.c}"><svg viewBox="0 0 24 24">${a.icon}</svg></span><span><span class="name">${a.name}<small>${a.zh}</small></span><span class="desc">${a.desc}</span></span><canvas width="144" height="52"></canvas><span class="dot"></span><span class="bar"><i></i></span>`;
   b.addEventListener('click', () => agentClick(a.id));
   agentBox.appendChild(b);
-  a.el = b; a.cv = b.querySelector('canvas'); a.ph = Math.random() * 10; a.desc0 = a.desc;
+  a.el = b; a.cv = b.querySelector('canvas'); a.cv.title = '示意波形，状态以文字为准'; a.ph = Math.random() * 10; a.desc0 = a.desc; a.state = '';
 });
 function agentsUpdate(m) {
   (m.items || []).forEach(it => {
     const a = AGENTS.find(x => x.id === it.id); if (!a) return;
     const el = a.el;
+    a.state = it.state || '';
     el.classList.toggle('run', it.state === 'run'); el.classList.toggle('warn', it.state === 'warn');
     el.classList.toggle('off', it.state === 'off'); el.classList.toggle('live', it.state === 'run' || it.state === 'warn');
     el.querySelector('.desc').textContent = a.desc0 = it.desc || '';
     el.title = it.desc || '';
     el.querySelector('.bar i').style.width = it.state === 'run' ? Math.round((it.progress || 0.5) * 100) + '%' : it.state === 'warn' ? '100%' : '0%';
   });
+  if (window.JVTruth) JVTruth.pushSeries('agent', JVTruth.agentLevel(m.items));
 }
 function agentClick(id) {
-  if (id === 'brain' && typeof brainOpen === 'function') return brainOpen();
-  if (id === 'learn' && typeof brainOpen === 'function') { brainOpen(); try { bwTopView('ab'); liveSend({ type: 'brain_abilities' }); } catch (_) {} return; }
-  handle(id === 'jobs' ? '后台任务进行得怎么样了？' : '昨天的复盘有什么建议？');
+  const a = AGENTS.find(x => x.id === id);
+  const act = window.JVTruth ? JVTruth.agentAction(id, a && a.state) : { type: 'ask', text: '' };
+  if (act.type === 'blocked') {
+    try { openTalk(); } catch (_) {}
+    const line = (a && (a.desc0 || a.desc)) || act.text;
+    try { sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(line); } catch (_) {}
+    return;
+  }
+  if (act.type === 'open-brain' && typeof brainOpen === 'function') return brainOpen();
+  if (act.type === 'open-learn' && typeof brainOpen === 'function') { brainOpen(); try { bwTopView('ab'); liveSend({ type: 'brain_abilities' }); } catch (_) {} return; }
+  if (act.type === 'ask') handle(act.text);
 }
 
-let done = 0, total = 0;
-let TASKS = [];          // filled from the real day plan (schedule messages)
+let done = 0, total = 0, scheduleKnown = false;
+let TASKS = [];          // unused sample list; the report stays empty until a schedule message
 let liveTasks = null;   // from the real day plan: [title, status word, class]
 function renderReport() {
+  const em = document.querySelector('#pReport .done em');
+  if (!scheduleKnown) {
+    $('#totalNum').textContent = '–';
+    $('#gaugeArc').style.strokeDashoffset = '226.2';
+    $('#gaugeNum').textContent = '–';
+    $('#doneNum').textContent = '–';
+    $('#segs').innerHTML = '';
+    if (em) em.textContent = '尚未同步';
+    $('#tasks').innerHTML = '<li class="new"><i></i><span style="color:var(--ink-3)">日程还没从本机同步，这里不会显示示例任务</span><b></b></li>';
+    return;
+  }
   const pct = total ? Math.round(done / total * 100) : 0;
   $('#totalNum').textContent = total;
   $('#gaugeArc').style.strokeDashoffset = (226.2 * (1 - pct / 100)).toFixed(1);
   animateNum($('#gaugeNum'), pct); $('#doneNum').textContent = done;
+  if (em) em.textContent = total ? '任务已完成' : '今天没有任务';
   $('#segs').innerHTML = Array.from({ length: 8 }, (_, i) => `<i class="${i < Math.floor(pct / 12.5) ? 'on' : i === Math.floor(pct / 12.5) ? 'half' : ''}"></i>`).join('');
-  if (liveTasks) $('#tasks').innerHTML = liveTasks.length ? liveTasks.map(([n, w, c]) => `<li class="${c}"><i></i><span>${escapeHtml(n)}</span><b style="font-size:12.5px">${w}</b></li>`).join('') : '<li class="new"><i></i><span style="color:var(--ink-3)">还没有任务，告诉我今天要做什么</span><b></b></li>';
-  else $('#tasks').innerHTML = TASKS.map(([n, p]) => `<li class="${p === 100 ? 'ok' : p >= 70 ? 'go' : p >= 40 ? 'slow' : 'new'}"><i></i><span>${n}</span><b>${p}%</b></li>`).join('');
+  if (liveTasks) $('#tasks').innerHTML = liveTasks.length ? liveTasks.map(([n, w, c]) => `<li class="${c}"><i></i><span>${escapeHtml(n)}</span><b style="font-size:12.5px">${escapeHtml(String(w))}</b></li>`).join('') : '<li class="new"><i></i><span style="color:var(--ink-3)">还没有任务，告诉我今天要做什么</span><b></b></li>';
+  else $('#tasks').innerHTML = TASKS.map(([n, p]) => `<li class="${p === 100 ? 'ok' : p >= 70 ? 'go' : p >= 40 ? 'slow' : 'new'}"><i></i><span>${escapeHtml(n)}</span><b>${p}%</b></li>`).join('');
 }
 function animateNum(el, to) { const from = +el.textContent || 0; const t0 = performance.now(); (function s(now) { const k = Math.min(1, (now - t0) / 1200); el.textContent = Math.round(from + (to - from) * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(s); })(t0); }
 renderReport();
 
-let SCHED = [['09:00', '09:30', '团队站会', '项目进展与重点对齐'], ['09:30', '11:00', '方案评审', '贾维斯交互方案讨论'], ['11:00', '12:00', '深度研究', '多模态模型调研'], ['13:30', '15:00', '开发迭代', 'Agent 工具链集成'], ['15:30', '16:30', '项目复盘', '里程碑与风险梳理'], ['17:00', '18:00', '文档整理', '技术文档与下一步计划']];
+let SCHED = [];          // only the voice service's schedule message may fill this
 const toMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
 function schedInfo() { const d = new Date(); const now = d.getHours() * 60 + d.getMinutes(); let cur = -1, next = -1; SCHED.forEach((s, i) => { if (now >= toMin(s[0]) && now < toMin(s[1])) cur = i; if (next < 0 && toMin(s[0]) > now) next = i; }); return { now, cur, next }; }
 let TODO = [];          // live items without a time
 function renderSched() {
+  if (!scheduleKnown) {
+    $('#sched').innerHTML = '<li><i></i><span class="t">今天</span><span><b>尚未同步</b><span>连上本机语音服务后显示日程文件。未连接时不显示示例安排。</span></span></li>';
+    return;
+  }
   const { now, cur, next } = schedInfo();
   const fi = cur >= 0 ? cur : next;
   const timed = SCHED.map((s, i) => `<li class="${s[4] ? 'past' : i === fi ? 'focus' : toMin(s[1]) <= now ? 'past' : ''}"><i></i><span class="t">${s[0]}${s[5] === false ? '' : ' – ' + s[1]}${i === fi && !s[4] ? '<span class="arr">→</span>' : ''}</span><span><b>${escapeHtml(s[2])}${s[4] ? ' ✓' : ''}</b><span>${escapeHtml(s[3] || '')}</span></span></li>`);
@@ -61,6 +87,7 @@ function renderSched() {
 }
 /* the real day plan from the voice service replaces the demo data */
 function applySchedule(items) {
+  scheduleKnown = true;
   const hm = m => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
   const timed = items.filter(x => x.start), now = new Date().getHours() * 60 + new Date().getMinutes();
   SCHED = timed.map(x => [x.start, x.end || hm(toMin(x.start) + 30), x.title || x.title_en, x.note, !!x.done, !!x.end]);
@@ -84,16 +111,42 @@ const WX_ICON = {
   fog: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 9h16M6 13h12M4 17h16"></path></svg>'
 };
 const wxKind = w => /雪/.test(w) ? 'snow' : /雨/.test(w) ? 'rain' : /雾|霾|沙|尘/.test(w) ? 'fog' : /晴/.test(w) ? (/云/.test(w) ? 'part' : 'sun') : /少云|多云/.test(w) ? 'part' : 'cloud';
+function paintWxDays(days) {
+  const box = $('#pWeather .wx-days');
+  const label = ['今天', '明天'];
+  if (!days.length) { box.innerHTML = '<div>今天<b>—</b></div><div>明天<b>—</b></div><div>后天<b>—</b></div>'; return; }
+  box.innerHTML = days.map((d, i) => {
+    const wk = WD[+d.week % 7] || '';
+    return `<div>${label[i] || wk}${WX_ICON[wxKind(d.day || '')]}<b>${escapeHtml(String(d.low))}°/${escapeHtml(String(d.high))}°</b></div>`;
+  }).join('');
+}
 function wxUpdate(m) {
-  wxLive = true;
+  const view = window.JVTruth ? JVTruth.weatherView(m) : null;
   const big = $('#pWeather .wx-big');
-  big.querySelector('b').firstChild.textContent = m.temp;
-  big.querySelector('svg').outerHTML = WX_ICON[wxKind(m.now)].replace('<svg ', '<svg aria-hidden="true" ');
-  $('#pWeather .wx-now > span').textContent = m.now;
-  $('#pWeather .wx-now .meta').innerHTML = `<span>${escapeHtml((m.city || '').replace(/市$/, ''))}</span><span>湿度 ${m.humidity}%</span>`;
-  const label = ['今天', '明天'], days = $('#pWeather .wx-days').children;
-  (m.days || []).slice(0, 3).forEach((d, i) => {
-    const wk = WD[+d.week % 7];
-    days[i].innerHTML = `${label[i] || wk}${WX_ICON[wxKind(d.day)]}<b>${d.low}°/${d.high}°</b>`;
-  });
+  const word = $('#pWeather .wx-now > span');
+  const meta = $('#pWeather .wx-now .meta');
+  const src = $('#wxSrc');
+  if (!view || view.state !== 'live') {
+    wxLive = false;
+    if (big.querySelector('b').firstChild) big.querySelector('b').firstChild.textContent = '—';
+    const degOff = big.querySelector('.deg'); if (degOff) degOff.textContent = '°';
+    if (word) word.textContent = view ? view.word : '天气未同步';
+    if (meta) meta.innerHTML = `<span>${escapeHtml(view ? view.meta : '等待本机服务，不显示示例城市')}</span>`;
+    paintWxDays([]);
+    if (src) src.textContent = '';
+    return;
+  }
+  wxLive = true;
+    if (big.querySelector('b').firstChild) big.querySelector('b').firstChild.textContent = view.temp;
+    const deg = big.querySelector('.deg'); if (deg) deg.textContent = '°C';
+  const icon = WX_ICON[wxKind(view.word)] || WX_ICON.cloud;
+  const svg = big.querySelector('svg');
+  if (svg) svg.outerHTML = icon.replace('<svg ', '<svg aria-hidden="true" ');
+  if (word) word.textContent = view.word;
+  const bits = [`<span>${escapeHtml(view.city)}</span>`];
+  if (view.extra) bits.push(`<span>${escapeHtml(view.extra)}</span>`);
+  if (view.aqi != null) bits.push(`<span>AQI ${escapeHtml(String(view.aqi))}</span>`);
+  if (meta) meta.innerHTML = bits.join('');
+  paintWxDays(view.days);
+  if (src) src.textContent = view.source;
 }

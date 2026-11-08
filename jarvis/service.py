@@ -20,7 +20,7 @@ from .aec import EchoCanceller
 from .engine import VoiceEngine
 from .tts import make_speaker, SR_OUT
 from .brain import answer_pair
-from . import config, paths, sysmon, schedule, brain, memory, tools
+from . import config, paths, sysmon, schedule, brain, memory, tools, hud_truth
 
 SR_IN = models.SR
 
@@ -194,21 +194,54 @@ class Service:
             log(f"schedule: {e}")
 
     # -- weather and routes (AMap plugin) -------------------------------------
-    def push_world(self):
+    def link_msg(self):
+        """What is configured, without keys, URLs, or file paths."""
         amap = tools.plugin("amap")
-        if not amap or not amap.key():
-            return
+        harness = tools.plugin("harness")
         try:
-            self.broadcast({"type": "weather", **amap.weather()})
-        except Exception as e:
-            log(f"weather: {e}")
-        try:                                    # weekday mornings: the commute to work
-            ps, now = amap.places(), time.localtime()
-            if "home" in ps and "work" in ps and now.tm_wday < 5 and 6 <= now.tm_hour < 10 and not self.trip_shown:
-                amap.LAST_ROUTE = amap.route("work")
-                self.push_trip()
-        except Exception as e:
-            log(f"commute: {e}")
+            from . import onboard
+            llm = onboard.status()
+        except Exception:
+            llm = {}
+        try:
+            harness_on = bool(harness and harness.available())
+        except Exception:
+            harness_on = False
+        return hud_truth.link_message(
+            voice=True, psutil=sysmon.psutil is not None,
+            llm=bool(llm.get("configured")), llm_provider=str(llm.get("provider") or ""),
+            amap=bool(amap and amap.key()), harness=harness_on)
+
+    def push_world(self):
+        """Weather, and a commute route on weekday mornings. Missing AMap is an explicit empty state."""
+        amap = tools.plugin("amap")
+        has_key = bool(amap and amap.key())
+        weather, err = None, ""
+        if has_key:
+            try:
+                weather = amap.weather()
+                weather = {**weather, "served_at": time.time()}
+            except Exception as e:
+                err = hud_truth.public_error(e)
+                log(f"weather: {err}")
+        sent_trip = False
+        if has_key:
+            try:                                # weekday mornings: the commute to work
+                ps, now = amap.places(), time.localtime()
+                if "home" in ps and "work" in ps and now.tm_wday < 5 and 6 <= now.tm_hour < 10 and not self.trip_shown:
+                    amap.LAST_ROUTE = amap.route("work")
+                    self.push_trip()
+                    sent_trip = True
+            except Exception as e:
+                log(f"commute: {hud_truth.public_error(e)}")
+        route = amap.LAST_ROUTE if amap else None
+        for msg in hud_truth.world_messages(has_amap=bool(amap), has_key=has_key, weather=weather,
+                                            weather_error=err, has_route=bool(route)):
+            self.broadcast(msg)
+        if route and not sent_trip:
+            # a window that connects later still sees the last real route, not the sample commute
+            slim = {k: v for k, v in route.items() if k not in ("nav_url", "holo")}
+            self.broadcast({"type": "trip", "source": "amap", **slim})
 
     def push_trip(self):
         amap = tools.plugin("amap")
@@ -227,7 +260,7 @@ class Service:
                 r["holo"]["map"] = amap.static_map(r["holo"])
             except Exception as e:
                 log(f"static map: {e}")
-        self.broadcast({"type": "trip", **{k: v for k, v in r.items() if k != "nav_url"}, "qr": qr})
+        self.broadcast({"type": "trip", "source": "amap", **{k: v for k, v in r.items() if k != "nav_url"}, "qr": qr})
 
     def harness_done(self, task, ok, answer):
         """A DeepSeek Harness job ended: let the model sum it up, then say it once nobody is mid-conversation."""
@@ -592,6 +625,7 @@ class Service:
                 if self.mic_msg:
                     await ws.send(json.dumps(self.mic_msg, ensure_ascii=False))
                 await ws.send(json.dumps({"type": "listen", "on": not self.muted}))
+                await ws.send(json.dumps(self.link_msg(), ensure_ascii=False))
             except Exception:
                 pass
             threading.Thread(target=self.push_world, daemon=True).start()
@@ -619,6 +653,8 @@ class Service:
                             threading.Thread(target=em.msg, args=(msg,), daemon=True).start()
                     elif msg.get("type") == "listen":        # 暂停聆听 / 恢复聆听
                         self.set_listening(bool(msg.get("on")))
+                    elif msg.get("type") == "link":          # shield: configured or not, never the keys
+                        await ws.send(json.dumps(self.link_msg(), ensure_ascii=False))
                     elif msg.get("type") == "holo_list":     # the 3D 拆解 library asks what is stored
                         from . import hologram
                         items = await asyncio.get_running_loop().run_in_executor(None, hologram.catalog)
@@ -660,8 +696,11 @@ class Service:
                         st = sysmon.sample()
                         if st:
                             self.broadcast({"type": "sys", **st})
+                        elif not getattr(self, "_sys_missing", False):
+                            self._sys_missing = True
+                            self.broadcast({"type": "sys", **sysmon.unavailable()})
                     except Exception as e:
-                        log(f"sysmon: {e}")
+                        log(f"sysmon: {hud_truth.public_error(e)}")
                 elif os.environ.get("JARVIS_STAY_ON") != "1" and time.time() - self.seen > 20:
                     # the Jarvis window is gone (closed or crashed): stop listening until it opens again
                     log("no Jarvis window connected, stopping")

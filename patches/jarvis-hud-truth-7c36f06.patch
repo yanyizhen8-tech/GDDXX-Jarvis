@@ -1,0 +1,1319 @@
+diff --git a/docs/mac-hud-truth-apply.md b/docs/mac-hud-truth-apply.md
+new file mode 100644
+index 0000000..86b8fbe
+--- /dev/null
++++ b/docs/mac-hud-truth-apply.md
+@@ -0,0 +1,83 @@
++# Mac apply / rollback for the HUD truth patch
++
++Base commit on the installed tree: `7c36f0634005996b8d049569cb5ce8ee541f0671`.
++
++This patch does not reinstall Jarvis, does not touch the venv, model files, `~/Library/Application Support/Jarvis`, `~/.jarvis` settings, or the desktop shortcut. It only changes dashboard code in the app directory.
++
++Linux unit tests do not mean the Mac app was launched.
++
++## Before applying
++
++```bash
++cd /Users/a222/GDDXX-Jarvis
++git rev-parse HEAD
++git status --short
++```
++
++Expect the recorded base `7c36f0634005996b8d049569cb5ce8ee541f0671`, or a descendant that has not already edited the files below. If `git status` shows local edits to any file in this patch, stop. Do not overwrite them. Send a sanitized diff of only those conflicting files (`git diff -- path`, with secrets removed) before retrying.
++
++Copy `patches/jarvis-hud-truth-7c36f06.patch` from this branch onto the Mac, then:
++
++```bash
++cd /Users/a222/GDDXX-Jarvis
++git apply --check --verbose /path/to/jarvis-hud-truth-7c36f06.patch
++```
++
++If `--check` reports a conflict, do not apply. If it is clean:
++
++```bash
++git apply --verbose /path/to/jarvis-hud-truth-7c36f06.patch
++```
++
++Restart with the existing interpreter. Do not run `app/install.py` and do not download models:
++
++```bash
++"/Users/a222/Library/Application Support/Jarvis/venv/bin/python" /Users/a222/GDDXX-Jarvis/app/launch.py
++```
++
++## Rollback
++
++```bash
++cd /Users/a222/GDDXX-Jarvis
++git apply -R --check /path/to/jarvis-hud-truth-7c36f06.patch && git apply -R /path/to/jarvis-hud-truth-7c36f06.patch
++```
++
++Then start `app/launch.py` the same way. Rollback does not delete settings or models.
++
++## What the screenshots were showing
++
++| Module | Before this patch | After |
++| --- | --- | --- |
++| Clock, date | Real local clock | Unchanged |
++| LOCAL ● ON | Hard-coded ON | ON only while `ws://127.0.0.1:8765` is connected; otherwise OFF |
++| CPU / MEM / NET | Live psutil when the voice service is up (about every 2s). CPU is the short interval since the previous sample, memory is virtual-memory percent. With no service, MEM and NET were random lookalikes (55–60%, 4–8 MB/s). | Same psutil source, with a tooltip (source, window, sample time). First sample has no window, so CPU and NET stay `--`. Missing psutil says so. No invented numbers. A sample older than 15s is marked stale. |
++| Search, mic (connected), HOLD SPACE (connected) | Search focuses the box. Mic / M toggles real listening. | Unchanged when connected. Disconnected mic and HOLD SPACE no longer type a canned sentence. |
++| Shield | No click handler | Opens a local status list: voice, psutil, language model configured or not, AMap configured or not, Harness installed or not. No keys and no URLs. |
++| Menu “语音播报” | Browser `speechSynthesis` only | Relabeled 演示播报. It still does not control the Mac voice service. |
++| 3D 拆解 | Real library over the voice socket | Unchanged. If the socket is down it already says so. |
++| Agent text | Real `agents.snapshot()` (the truncated “未安装 DeepSeek H…” is that string) | Same source. Description wraps to two lines. Jobs/Review in the `off` state do not ask the model; the subtitle shows the real reason. Brain still opens its window. |
++| Agent sparklines | Decorative | Still decorative, titled as such |
++| 工作汇报 / 今日安排 | Real schedule file once a `schedule` message arrives (empty day matched the screenshots). Before that, six fake meetings. | No fake meetings. “尚未同步” until the service sends the file. Empty day stays “还没有任务”. |
++| AGENT/SYSTEM/TOOL/HUMAN wave | Sine wave. Tab change only retunes it. | SYSTEM draws CPU samples, HUMAN draws mic level, AGENT draws panel state. TOOL stays labeled 示意: there is no tool-event stream. |
++| Bottom DATA/MODEL/AGENT/KNOWLEDGE/WORLD | Decorative. The “演示数据” tag hid itself once the socket connected. | Still decorative. The tag stays: “底部仪表 · 示意动画”. |
++| 天气与出行 | HTML sample: 上海 18°C 多云 AQI 36, forecast 14/22, 16/24, 18/26. A real AMap push replaces it. No key meant the sample stayed forever, and the third weekday kept updating. | No sample city. Unconfigured AMap is an explicit empty state. A real forecast shows 高德, the observation time, and humidity. AQI is shown only if a payload actually contains it. |
++| 去张江科学城 / ETA | Sample trip. ETA was `now + 32 min`, so it ticked (23:09 → 23:10) with no route query. The moving map was a fixed polyline. | No ticking sample ETA and no fake route line. A real `plan_route` / morning commute still draws its path and ETA. |
++| Corner coordinates | Fixed Shanghai-looking degrees | Labeled 示意坐标 / 非本机定位 |
++| 进入待机 chip | Only worked if the language model called `set_screen` | The panel hides immediately. The text is still sent when the socket is up. |
++| Idle after launch | `body.dormant` hides the panels until a pointer or key event; quiet idle hides them again after about 15s (30s after a wake). A click that only focuses the window may never reach the page, so the next click is the one that opens the dashboard. | Not changed. Not treated as a defect. |
++
++## Not faked, and not newly implemented
++
++- DeepSeek Harness still has to be installed for BRAIN/JOBS. This patch does not download it.
++- Weather and routing still need an AMap key already in the local config. This patch does not sign up, call the API from tests, or read the key out to the window.
++- A language model is still required for free-form answers. Offline typed replies say the voice service is disconnected.
++- Tool-call waveforms, the five bottom meters, and the agent sparklines are still decoration. They are labeled.
++
++## Tests run here
++
++```bash
++node tests/test_hud_truth.js
++python3 tests/test_hud_truth.py
++```
++
++They cover unconfigured and failed weather/route messages, secret stripping, psutil's first-versus-second sample flags, offline replies, standby, agent click actions, and wave captions. They do not open the Mac app.
+diff --git a/hud/css/hud.css b/hud/css/hud.css
+index f26e550..b4f4968 100644
+--- a/hud/css/hud.css
++++ b/hud/css/hud.css
+@@ -130,6 +130,7 @@ button{font:inherit;color:inherit}
+ .menu-pop button b{font-weight:400;color:var(--cyan)}
+ .menu-pop button[aria-pressed="false"] b{color:var(--ink-3)}
+ .stats .on{color:var(--ok)}
++.stats b.off,.stats b.stale,#net.stale{color:var(--ink-3)}
+ .stats b.hot{color:rgb(var(--sk-accl))}
+ .stats span{white-space:nowrap}
+ @media (max-width:1380px){.stats{gap:14px}.motto{display:none}}
+@@ -173,7 +174,7 @@ button{font:inherit;color:inherit}
+ .agent.live .ring{border:2px solid var(--c);box-shadow:0 0 18px 2px color-mix(in srgb,var(--c) 70%,transparent),inset 0 0 14px color-mix(in srgb,var(--c) 55%,transparent)}
+ .agent .ring svg{width:20px;height:20px;filter:drop-shadow(0 0 5px var(--c))}
+ .agent .name{font-family:var(--f-latin);font-size:16px;letter-spacing:.2px;font-weight:400;display:block}
+-.agent .desc{font-size:13px;color:var(--ink-2);display:block;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
++.agent .desc{font-size:13px;color:var(--ink-2);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;margin-top:2px;white-space:normal;overflow:hidden;line-height:1.35}
+ .agent canvas{width:72px;height:26px}
+ .agent .dot{width:9px;height:9px;border-radius:50%;background:var(--c);border:2px solid color-mix(in srgb,var(--c) 35%,rgb(var(--sk-bg)));box-shadow:0 0 8px color-mix(in srgb,var(--c) 70%,transparent)}
+ .agent.run .ring{border-color:var(--cyan);box-shadow:0 0 18px rgba(var(--sk-pri),.45),inset 0 0 12px rgba(var(--sk-pri),.35)}
+@@ -242,6 +243,8 @@ button{font:inherit;color:inherit}
+ .qr-pop svg{display:block;width:82px;height:82px;border-radius:3px}
+ .qr-pop[hidden]{display:none}
+ .trip .eta b{font-family:var(--f-latin);font-weight:400;font-size:21px}
++.wx-src,.wave-note{font-size:10px;letter-spacing:.08em;color:var(--ink-3);margin-top:4px}
++.wave-note{text-align:right}
+ #route{width:100%;height:96px;display:block;margin-top:6px}
+ 
+ /* schedule */
+@@ -397,5 +400,7 @@ body[data-state="listening"] .state-badge,body[data-state="thinking"] .state-bad
+ #statsHolo .bar.warn i::after{background:linear-gradient(90deg,rgba(var(--sk-acc),.4),var(--amber));box-shadow:0 0 10px var(--amber)}
+ #statsHolo .sh-foot{margin-top:16px;font-size:10.5px;color:var(--ink-3);letter-spacing:.5px;display:flex;justify-content:space-between}
+ @media (prefers-reduced-motion:reduce){#statsHolo,#statsHolo::before,#statsHolo .sh-grid div,#statsHolo .bar i::after{transition:none;animation:none}}
+-body[data-live] .demo-tag{display:none}
++.shield-pop{position:absolute;right:0;top:44px;width:280px;padding:12px 14px;border:1px solid var(--line-2);background:rgba(var(--sk-pnl),.94);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:7;font-size:12px;line-height:1.55;color:var(--ink-2)}
++.shield-pop[hidden]{display:none}
++.shield-pop div + div{margin-top:4px}
+ .agent.off{opacity:.42}.agent .name small{font-family:var(--f-cn);font-size:11px;color:var(--ink-3);margin-left:8px;letter-spacing:0}
+diff --git a/hud/index.html b/hud/index.html
+index 9135b74..e006f7a 100644
+--- a/hud/index.html
++++ b/hud/index.html
+@@ -23,10 +23,10 @@
+     <div class="motto"><span>随时待命，只为你一人</span><i></i></div>
+     <span class="grow"></span>
+     <div class="stats">
+-      <span>LOCAL<b class="on">● ON</b></span>
+-      <span>CPU<b id="cpu">--</b></span>
+-      <span>MEM<b id="mem">57%</b></span>
+-      <span>NET<b>⇅ <span id="net">6.1MB/s</span></b></span>
++      <span>LOCAL<b id="localFlag" class="off" title="本机语音服务未连接">● OFF</b></span>
++      <span>CPU<b id="cpu" title="等待 psutil 采样">--</b></span>
++      <span>MEM<b id="mem" title="等待 psutil 采样">--</b></span>
++      <span>NET<b><span id="net">--</span></b></span>
+       <span id="batBox" hidden>BAT<b id="bat">--</b></span>
+     </div>
+     <span class="sep"></span>
+@@ -35,7 +35,7 @@
+       <button class="icon-btn" type="button" aria-label="开始说话" id="btnMic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0"></path><path d="M12 18v3"></path></svg></button>
+       <button class="icon-btn" type="button" aria-label="隐私：数据仅存本地" id="btnShield"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2.5l8.2 4.75v9.5L12 21.5l-8.2-4.75v-9.5z"></path><path d="M12 8.5l3 1.75v3.5L12 15.5l-3-1.75v-3.5z"></path></svg></button>
+       <div class="menu-wrap"><button class="icon-btn" type="button" aria-label="菜单" aria-expanded="false" id="btnMenu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 7h16M4 12h11M4 17h16"></path></svg></button>
+-        <div class="menu-pop" id="menuPop" hidden><button type="button" id="btnVoice" aria-pressed="true">语音播报<b>开</b></button></div></div>
++        <div class="menu-pop" id="menuPop" hidden><button type="button" id="btnVoice" aria-pressed="true" title="只影响未连接语音服务时的浏览器演示播报，不控制本机语音">演示播报<b>开</b></button></div></div>
+     </div>
+   </header>
+ 
+@@ -49,7 +49,7 @@
+         <h2>工作汇报 <span class="pip"></span><span class="plus" aria-hidden="true"></span></h2>
+         <div class="report-top">
+           <div class="gauge"><svg viewBox="0 0 84 84" aria-hidden="true"><circle cx="42" cy="42" r="36" fill="none" stroke="rgba(170,200,215,.13)" stroke-width="7"></circle><circle id="gaugeArc" cx="42" cy="42" r="36" fill="none" stroke="#7FDBFF" stroke-width="7" stroke-dasharray="226.2" stroke-dashoffset="226.2" stroke-linecap="butt" style="transition:stroke-dashoffset 1.2s cubic-bezier(.2,.7,.2,1)"></circle></svg><b><span id="gaugeNum">0</span><small>%</small></b></div>
+-          <div class="done"><span><b id="doneNum" style="font-weight:300">9</b> / <span id="totalNum">12</span><em>任务已完成</em></span><div class="segs" id="segs"></div></div>
++          <div class="done"><span><b id="doneNum" style="font-weight:300">–</b> / <span id="totalNum">–</span><em>尚未同步</em></span><div class="segs" id="segs"></div></div>
+         </div>
+         <ul class="tasks" id="tasks"></ul>
+       </section>
+@@ -61,27 +61,29 @@
+           <button role="tab" aria-selected="false" data-w="3">HUMAN</button>
+         </div>
+         <canvas id="wave"></canvas>
++        <div class="wave-note" id="waveNote">示意波形 · 尚无采样</div>
+         <div class="state-line"><i id="stateDot"></i><span id="stateText">待命中</span></div>
+       </section>
+     </aside>
+ 
+-    <div class="core-hit" aria-hidden="true"><span class="xh tl"></span><span class="xh tr"></span><span class="xh bl"></span><span class="xh br"></span><div class="coords">N 31.2304°<br>E 121.4737°</div></div>
++    <div class="core-hit" aria-hidden="true"><span class="xh tl"></span><span class="xh tr"></span><span class="xh bl"></span><span class="xh br"></span><div class="coords" id="coords" title="界面装饰，不是本机定位">示意坐标<br>非本机定位</div></div>
+ 
+     <aside class="col right">
+       <section class="panel" id="pWeather" aria-label="天气与出行">
+         <h2>天气与出行 <span class="pip"></span></h2>
+         <div class="wx">
+-          <div class="wx-now"><div class="wx-big"><b>18<span class="deg">°C</span></b><svg viewBox="0 0 24 24" fill="none" stroke-width="1.3" aria-hidden="true"><circle cx="15.5" cy="8" r="3.2" stroke="#FFC27A"></circle><path d="M15.5 2.5v1.2M20.5 8h1.2M19 4.5l.9-.9" stroke="#FFC27A"></path><path d="M6 19.5h10a3.8 3.8 0 0 0 0-7.6 5.2 5.2 0 0 0-10 1.6A3 3 0 0 0 6 19.5z" stroke="currentColor" fill="rgba(220,239,247,.12)"></path></svg></div><span>多云</span><span class="meta"><span>上海</span><span>空气优</span><span>AQI 36</span></span></div>
++          <div class="wx-now"><div class="wx-big"><b>—<span class="deg">°</span></b><svg viewBox="0 0 24 24" fill="none" stroke-width="1.3" aria-hidden="true"><circle cx="15.5" cy="8" r="3.2" stroke="#FFC27A"></circle><path d="M15.5 2.5v1.2M20.5 8h1.2M19 4.5l.9-.9" stroke="#FFC27A"></path><path d="M6 19.5h10a3.8 3.8 0 0 0 0-7.6 5.2 5.2 0 0 0-10 1.6A3 3 0 0 0 6 19.5z" stroke="currentColor" fill="rgba(220,239,247,.12)"></path></svg></div><span>天气未同步</span><span class="meta"><span>等待本机服务，不显示示例城市</span></span></div>
+           <div class="wx-days">
+-            <div>今天<svg viewBox="0 0 24 24" fill="rgba(220,239,247,.14)" stroke="currentColor" stroke-width="1.4"><path d="M7 18h10a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.6 1.5A3.3 3.3 0 0 0 7 18z"></path></svg><b>14°/22°</b></div>
+-            <div>明天<svg viewBox="0 0 24 24" fill="none" stroke-width="1.4"><circle cx="15" cy="8" r="3" stroke="#FFC27A" fill="rgba(255,194,122,.25)"></circle><path d="M6 19h9a3.5 3.5 0 0 0 0-7 5 5 0 0 0-9.5 1.4A2.9 2.9 0 0 0 6 19z" stroke="currentColor" fill="rgba(220,239,247,.14)"></path></svg><b>16°/24°</b></div>
+-            <div id="d3">周四<svg viewBox="0 0 24 24" fill="none" stroke="#FFC27A" stroke-width="1.4"><circle cx="12" cy="12" r="4" fill="rgba(255,194,122,.25)"></circle><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"></path></svg><b>18°/26°</b></div>
++            <div>今天<b>—</b></div>
++            <div>明天<b>—</b></div>
++            <div>后天<b>—</b></div>
+           </div>
+         </div>
++        <div class="wx-src" id="wxSrc"></div>
+         <div class="trip">
+           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.2 6.5h11.6l2.4 5.2c.9.4 1.3 1 1.3 1.9V18h-2.2v1.8h-2.6V18H7.3v1.8H4.7V18H2.5v-4.4c0-.9.4-1.5 1.3-1.9z" fill="#DCEFF7"></path><path d="M7.4 8.3h9.2l1.6 3.4H5.8z" fill="#0a1720"></path><circle cx="6.6" cy="14.7" r="1.3" fill="#0a1720"></circle><circle cx="17.4" cy="14.7" r="1.3" fill="#0a1720"></circle></svg>
+-          <div><b>去 张江科学城</b><span>32 分钟<em></em>24 km</span></div>
+-          <div class="eta"><span>预计抵达</span><b id="eta">--:--</b></div>
++          <div><b>还没有路线</b><span>等待本机服务 · 不显示示例行程</span></div>
++          <div class="eta"><span>预计抵达</span><b id="eta">—</b></div>
+         </div>
+         <canvas id="route" aria-label="通勤路线示意"></canvas>
+       </section>
+@@ -111,7 +113,7 @@
+     </div>
+     <div class="meters-wrap">
+       <div class="meters"><div class="meters" id="meters"></div><div class="globe" aria-hidden="true"><i></i><i></i><i></i><b></b></div></div>
+-      <div class="demo-tag">界面原型 · 演示数据</div>
++      <div class="demo-tag">底部仪表 · 示意动画</div>
+     </div>
+   </footer>
+ </div>
+diff --git a/hud/js/boot.js b/hud/js/boot.js
+index eef6b16..e519c6f 100644
+--- a/hud/js/boot.js
++++ b/hud/js/boot.js
+@@ -7,7 +7,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+ Object.assign(window, { THREE, EffectComposer, RenderPass, UnrealBloomPass, OutputPass });
+-const PARTS = ['core.js', 'nav.js', 'machine.js', 'render.js', 'hand.js', 'skins.js', 'cores/kit.js', 'cores/neural.js', 'cores/nebula.js', 'cores/ion.js', 'cores/works.js', 'cores/factory.js', 'cores/spider.js', 'cores/ops.js', 'skin-picker.js', 'demos.js', 'demo-mode.js', 'loop.js', 'panels.js', 'creator.js', 'interaction.js', 'subtitles.js', 'talk.js', 'live.js', 'holo-lib.js', 'earth-migration.js', 'tour.js', 'brain-window.js', 'voiceprint.js', 'start.js'];
++const PARTS = ['core.js', 'nav.js', 'machine.js', 'render.js', 'hand.js', 'skins.js', 'cores/kit.js', 'cores/neural.js', 'cores/nebula.js', 'cores/ion.js', 'cores/works.js', 'cores/factory.js', 'cores/spider.js', 'cores/ops.js', 'skin-picker.js', 'demos.js', 'demo-mode.js', 'loop.js', 'truth.js', 'panels.js', 'creator.js', 'interaction.js', 'subtitles.js', 'talk.js', 'live.js', 'holo-lib.js', 'earth-migration.js', 'tour.js', 'brain-window.js', 'voiceprint.js', 'start.js'];
+ for (const p of [...PARTS, 'onboard.js']) {
+   const s = document.createElement('script');
+   s.src = 'js/' + p; s.async = false;
+diff --git a/hud/js/creator.js b/hud/js/creator.js
+index 7218fbe..79740d6 100644
+--- a/hud/js/creator.js
++++ b/hud/js/creator.js
+@@ -39,40 +39,69 @@ $('#statsHolo').addEventListener('click', statsHide);
+ addEventListener('keydown', e => { if (e.key === 'Escape') statsHide(); });
+ addEventListener('keydown', e => { if (e.key === 'Escape') machineEscape(); });
+ const MODE_WORD = { car: '开车', transit: '公交地铁', walk: '步行', bike: '骑行' };
++let routeShown = false, lastSys = null;
+ function tripUpdate(m) {
+-  tripLive = true;
++  const view = window.JVTruth ? JVTruth.tripView(m) : null;
+   const box = $('#pWeather .trip > div');
+-  box.innerHTML = `<b>去 ${escapeHtml(m.to)}</b><span>${m.minutes} 分钟<em></em>${m.km} km<em></em>${MODE_WORD[m.mode] || ''}</span>` + (m.line ? `<span style="display:block;font-size:12px;color:var(--ink-2)">${escapeHtml(m.line)}</span>` : '');
+-  $('#eta').textContent = m.eta;
+-  if (m.path && m.path.length > 1) { routePts.length = 0; m.path.forEach(p => routePts.push(p)); }
++  const route = $('#route');
++  if (!view || view.state !== 'live') {
++    tripLive = false;
++    routeShown = false;
++    if (box) box.innerHTML = `<b>${escapeHtml(view ? view.title : '还没有路线')}</b><span>${escapeHtml(view ? view.meta : '不显示示例行程')}</span>`;
++    $('#eta').textContent = '—';
++    const pop = $('#qrPop'); if (pop) pop.hidden = true;
++    if (route) route.setAttribute('aria-label', '没有路线。底图是装饰，不是导航。');
++    return;
++  }
++  tripLive = true;
++  const prev = box.querySelector('b') ? box.querySelector('b').textContent : '';
++  box.innerHTML = `<b>${escapeHtml(view.title)}</b><span>${escapeHtml(view.meta)}<em></em>${escapeHtml(MODE_WORD[view.mode] || '')}${view.source ? ' · ' + escapeHtml(view.source) : ''}</span>` + (view.line ? `<span style="display:block;font-size:12px;color:var(--ink-2)">${escapeHtml(view.line)}</span>` : '');
++  $('#eta').textContent = view.eta;
++  routeShown = !!(view.path && view.path.length > 1);
++  if (routeShown) { routePts.length = 0; view.path.forEach(p => routePts.push(p)); }
++  if (route) route.setAttribute('aria-label', routeShown ? '已查询的路线' : '路线没有坐标，不画假路径');
+   let pop = $('#qrPop');
+   if (!pop) { pop = document.createElement('div'); pop.id = 'qrPop'; pop.className = 'qr-pop'; pop.title = '点击收起'; $('#pWeather').appendChild(pop); pop.addEventListener('click', () => { pop.hidden = true; }); }
+   if (m.qr) { pop.innerHTML = m.qr + '<span>手机扫码<br>用高德导航</span>'; pop.hidden = false; clearTimeout(pop._t); pop._t = setTimeout(() => { pop.hidden = true; }, 120000); }
++  else pop.hidden = true;
+   if (m.holo) holoShow(m.holo, m);
+-  focusPanel && focusPanel('pWeather');
++  if (prev !== view.title && focusPanel) focusPanel('pWeather');
++}
++function applySysView(view) {
++  const set = (id, text, hot, stale) => {
++    const el = $(id); if (!el) return;
++    el.textContent = text;
++    el.classList.toggle('hot', !!hot);
++    el.classList.toggle('stale', !!stale);
++    el.title = view.title || '';
++  };
++  const stale = view.state === 'stale';
++  set('#cpu', view.cpu, view.cpuHot, stale);
++  set('#mem', view.mem, view.memHot, stale);
++  const net = $('#net');
++  if (net) {
++    if (net.previousSibling) net.previousSibling.textContent = '';
++    net.textContent = view.net;
++    net.classList.toggle('stale', stale);
++    net.title = view.title || '';
++  }
+ }
+-const rate = b => b >= 1e6 ? (b / 1e6).toFixed(1) + 'MB/s' : b >= 1e3 ? Math.round(b / 1e3) + 'KB/s' : Math.round(b) + 'B/s';
+ function sysUpdate(m) {
+-  sysLive = true;
+-  cpuHot = m.cpu >= 90 ? cpuHot + 1 : 0;                     // amber only when it stays high (~10 s)
+-  const set = (id, text, hot) => { const el = $(id); el.textContent = text; el.classList.toggle('hot', !!hot); };
+-  set('#cpu', m.cpu + '%', cpuHot >= 5);
+-  set('#mem', m.mem + '%', m.mem >= 90);
+-  const net = $('#net'); if (net.previousSibling) net.previousSibling.textContent = '';
+-  net.textContent = '↓' + rate(m.down) + ' ↑' + rate(m.up);
+-  if (m.battery != null) { $('#batBox').hidden = false; set('#bat', m.battery + '%' + (m.charging ? '⚡' : ''), !m.charging && m.battery <= 15); }
++  lastSys = m;
++  if (!m || m.ok === false) { sysLive = false; cpuHot = 0; }
++  else sysLive = true;
++  cpuHot = m && m.cpu >= 90 ? cpuHot + 1 : 0;          // amber only when a real reading stays high (~10 s)
++  const view = window.JVTruth ? JVTruth.sysView(m, Date.now() / 1000, cpuHot) : { cpu: '--', mem: '--', net: '--', title: '', cpuHot: false, memHot: false, state: 'down' };
++  applySysView(view);
++  if (m && m.ok !== false && m.cpu_ready !== false && m.cpu != null && window.JVTruth) JVTruth.pushSeries('sys', m.cpu / 100);
++  if (m && m.battery != null) { $('#batBox').hidden = false; const set = (id, text, hot) => { const el = $(id); el.textContent = text; el.classList.toggle('hot', !!hot); }; set('#bat', m.battery + '%' + (m.charging ? '⚡' : ''), !m.charging && m.battery <= 15); }
+ }
+ const WD = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+ function tick() {
+   const d = new Date(); const p = n => String(n).padStart(2, '0');
+   $('#clock').textContent = `${p(d.getHours())}:${p(d.getMinutes())}`;
+   $('#date').textContent = `${d.getMonth() + 1}月${d.getDate()}日 ${WD[d.getDay()]}`;
+-  if (!tripLive) { const e = new Date(d.getTime() + 32 * 60000); $('#eta').textContent = `${p(e.getHours())}:${p(e.getMinutes())}`; }
+-  if (!wxLive) $('#d3').firstChild.textContent = WD[(d.getDay() + 2) % 7];
+-  if (!sysLive) {          // demo numbers only until the real monitor reports in
+-    $('#mem').textContent = (55 + Math.round(Math.random() * 5)) + '%';
+-    $('#net').textContent = (4 + Math.random() * 4).toFixed(1) + 'MB/s';
+-  }
++  if (lastSys && window.JVTruth) applySysView(JVTruth.sysView(lastSys, Date.now() / 1000, cpuHot));
+ }
+ tick(); setInterval(tick, 5000); setInterval(renderSched, 60000);
+ 
+@@ -81,7 +110,7 @@ function fit(cv) { const r = cv.getBoundingClientRect(); const w = Math.max(1, M
+ let waveMode = 1;
+ document.querySelectorAll('.wave-tabs button').forEach(b => b.addEventListener('click', () => { document.querySelectorAll('.wave-tabs button').forEach(x => x.setAttribute('aria-selected', 'false')); b.setAttribute('aria-selected', 'true'); waveMode = +b.dataset.w; }));
+ const METERS = ['DATA', 'MODEL', 'AGENT', 'KNOWLEDGE', 'WORLD'];
+-$('#meters').innerHTML = METERS.map(m => `<div class="meter">${m}<canvas></canvas></div>`).join('');
++$('#meters').innerHTML = METERS.map(m => `<div class="meter" title="示意动画，不是实时指标">${m}<canvas></canvas></div>`).join('');
+ const meterCvs = [...document.querySelectorAll('.meter canvas')];
+ const ROADS = (() => { let sd = 7; const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647; const out = [];
+   for (let i = 0; i < 64; i++) { const horiz = rnd() < 0.5; const p = []; let x = horiz ? -0.05 : rnd(), y = horiz ? rnd() : -0.05; for (let k = 0; k < 6; k++) { p.push([x, y]); if (horiz) { x += 0.22; y += (rnd() - 0.5) * 0.25; } else { y += 0.24; x += (rnd() - 0.5) * 0.12; } } out.push({ p, o: 0.04 + rnd() * (rnd() < 0.2 ? 0.2 : 0.08) }); }
+@@ -103,21 +132,33 @@ function drawSmall(t) {
+   { const c = fit($('#wave')), w = c.canvas.width, h = c.canvas.height; c.clearRect(0, 0, w, h);
+     c.strokeStyle = `rgba(${SKC.line},.08)`; c.lineWidth = 1; for (let g = 1; g < 4; g++) { c.beginPath(); c.moveTo(0, h * g / 4); c.lineTo(w, h * g / 4); c.stroke(); }
+     c.strokeStyle = `rgba(${SKC.line},.06)`; for (let g = 1; g < 10; g++) { c.beginPath(); c.moveTo(w * g / 10, 0); c.lineTo(w * g / 10, h); c.stroke(); }
+-    const fr = [1.0, 1.4, 2.2, 0.7][waveMode];
+-    const wy = (u, L) => { const env = 0.35 + 0.65 * Math.sin(u * Math.PI); return h * 0.55 + env * h * 0.3 * Math.min(1.4, act) * (Math.sin(u * 7 * fr + t * (0.5 + L * 0.05) * act + L * 0.35) * 0.75 + 0.25 * Math.sin(u * 17 * fr - t * 0.8 + L)); };
+-    { const gr = c.createLinearGradient(0, h * 0.3, 0, h); gr.addColorStop(0, `rgba(${SKC.pri},.16)`); gr.addColorStop(1, `rgba(${SKC.pri},0)`); c.beginPath(); for (let x = 0; x <= 120; x++) { const u = x / 120; x ? c.lineTo(u * w, wy(u, 0)) : c.moveTo(0, wy(0, 0)); } c.lineTo(w, h); c.lineTo(0, h); c.closePath(); c.fillStyle = gr; c.fill(); }
+-    for (let L = 0; L < 14; L++) { c.beginPath(); for (let x = 0; x <= 120; x++) { const u = x / 120; x ? c.lineTo(u * w, wy(u, L)) : c.moveTo(0, wy(0, L)); } c.strokeStyle = L === 0 ? `rgba(${SKC.hi},.9)` : L % 4 === 0 ? 'rgba(200,232,245,.45)' : `rgba(${SKC.pri},.18)`; c.lineWidth = DPR * (L === 0 ? 1.4 : 0.8); if (L === 0) { c.shadowColor = `rgb(${SKC.pri})`; c.shadowBlur = 6 * DPR; } c.stroke(); c.shadowBlur = 0; } }
++    const note = $('#waveNote');
++    const seriesName = ['agent', 'sys', 'tool', 'human'][waveMode];
++    const vals = (window.JVTruth && seriesName !== 'tool') ? JVTruth.seriesValues(seriesName) : [];
++    if (note && window.JVTruth) note.textContent = JVTruth.waveLabel(waveMode);
++    if (vals.length > 1) {
++      c.beginPath();
++      vals.forEach((v, i) => { const x = (vals.length === 1 ? 0 : i / (vals.length - 1)) * w, y = h * 0.88 - v * h * 0.72; i ? c.lineTo(x, y) : c.moveTo(x, y); });
++      c.strokeStyle = `rgba(${SKC.hi},.9)`; c.lineWidth = 1.4 * DPR; c.shadowColor = `rgb(${SKC.pri})`; c.shadowBlur = 6 * DPR; c.stroke(); c.shadowBlur = 0;
++    } else {
++      const fr = [1.0, 1.4, 2.2, 0.7][waveMode];
++      const wy = (u, L) => { const env = 0.35 + 0.65 * Math.sin(u * Math.PI); return h * 0.55 + env * h * 0.3 * Math.min(1.4, act) * (Math.sin(u * 7 * fr + t * (0.5 + L * 0.05) * act + L * 0.35) * 0.75 + 0.25 * Math.sin(u * 17 * fr - t * 0.8 + L)); };
++      { const gr = c.createLinearGradient(0, h * 0.3, 0, h); gr.addColorStop(0, `rgba(${SKC.pri},.16)`); gr.addColorStop(1, `rgba(${SKC.pri},0)`); c.beginPath(); for (let x = 0; x <= 120; x++) { const u = x / 120; x ? c.lineTo(u * w, wy(u, 0)) : c.moveTo(0, wy(0, 0)); } c.lineTo(w, h); c.lineTo(0, h); c.closePath(); c.fillStyle = gr; c.fill(); }
++      for (let L = 0; L < 14; L++) { c.beginPath(); for (let x = 0; x <= 120; x++) { const u = x / 120; x ? c.lineTo(u * w, wy(u, L)) : c.moveTo(0, wy(0, L)); } c.strokeStyle = L === 0 ? `rgba(${SKC.hi},.35)` : L % 4 === 0 ? 'rgba(200,232,245,.2)' : `rgba(${SKC.pri},.1)`; c.lineWidth = DPR * (L === 0 ? 1.4 : 0.8); c.stroke(); }
++    } }
+   meterCvs.forEach((cv, i) => { const c = fit(cv), w = c.canvas.width, h = c.canvas.height; c.clearRect(0, 0, w, h);
+     if (i === 0) { for (let j = 0; j < 7; j++) { c.fillStyle = `rgba(${SKC.soft},${0.35 + 0.35 * Math.abs(Math.sin(t * 0.7 * act + j))})`; c.fillRect(0, h * 0.25 + j * h * 0.11, w * 0.85, DPR); } return; }
+     const N = 14; for (let j = 0; j < N; j++) { const v = 0.12 + 0.6 * Math.pow(Math.abs(Math.sin(t * (0.5 + i * 0.15) * act + j * 1.9 + i * 3)), 2) + (j === N - 2 ? 0.3 : 0); c.fillStyle = j === N - 2 ? `rgb(${SKC.ink})` : `rgba(${SKC.soft},.5)`; c.fillRect(j * w / N, h - Math.min(1, v) * h, DPR, Math.min(1, v) * h); } });
+   { const c = fit(routeCv), w = c.canvas.width, h = c.canvas.height; c.clearRect(0, 0, w, h);
+-    c.lineWidth = DPR; ROADS.forEach(r => { c.strokeStyle = `rgba(${SKC.line},${r.o})`; c.beginPath(); r.p.forEach(([x, y], i) => i ? c.lineTo(x * w, y * h) : c.moveTo(x * w, y * h)); c.stroke(); });
+-    c.beginPath(); routePts.forEach(([x, y], i) => i ? c.lineTo(x * w, y * h) : c.moveTo(x * w, y * h)); { const gr = c.createLinearGradient(0, 0, w, 0); gr.addColorStop(0, `rgb(${SKC.pri})`); gr.addColorStop(0.45, `rgb(${SKC.accp})`); gr.addColorStop(1, `rgb(${SKC.acc})`); c.strokeStyle = gr; } c.lineWidth = 1.6 * DPR; c.shadowColor = '#9fdcff'; c.shadowBlur = 6 * DPR; c.stroke(); c.shadowBlur = 0;
+-    routePts.slice(2, -1).forEach(([x, y], k) => { if (k % 2) return; c.fillStyle = `rgb(${SKC.accp})`; c.beginPath(); c.arc(x * w, y * h, 2.2 * DPR, 0, 7); c.fill(); });
+-    const seg = routePts.length - 1, pos = (t * 0.05) % 1 * seg, i0 = Math.floor(pos), fr2 = pos - i0; const [ax, ay] = routePts[i0], [bx, by] = routePts[i0 + 1];
+-    c.fillStyle = `rgb(${SKC.pri})`; c.beginPath(); c.arc((ax + (bx - ax) * fr2) * w, (ay + (by - ay) * fr2) * h, 4 * DPR, 0, 7); c.fill();
+-    c.fillStyle = `rgb(${SKC.pri})`; c.shadowColor = `rgb(${SKC.pri})`; c.shadowBlur = 14 * DPR; c.beginPath(); c.arc(routePts[0][0] * w, routePts[0][1] * h, 5.5 * DPR, 0, 7); c.fill(); c.shadowBlur = 0;
+-    c.strokeStyle = `rgba(${SKC.pri},.5)`; c.beginPath(); c.arc(routePts[0][0] * w, routePts[0][1] * h, 10 * DPR, 0, 7); c.stroke();
+-    { const px = routePts[seg][0] * w, py = routePts[seg][1] * h, r = 6 * DPR; c.fillStyle = `rgb(${SKC.acc})`; c.shadowColor = `rgb(${SKC.acc})`; c.shadowBlur = 10 * DPR; c.beginPath(); c.arc(px, py - r * 1.4, r, Math.PI * 0.85, Math.PI * 0.15); c.lineTo(px, py); c.closePath(); c.fill(); c.shadowBlur = 0; c.fillStyle = '#1a0e03'; c.beginPath(); c.arc(px, py - r * 1.4, r * 0.4, 0, 7); c.fill(); } }
++    c.lineWidth = DPR; ROADS.forEach(r => { c.strokeStyle = `rgba(${SKC.line},${routeShown ? r.o : r.o * 0.45})`; c.beginPath(); r.p.forEach(([x, y], i) => i ? c.lineTo(x * w, y * h) : c.moveTo(x * w, y * h)); c.stroke(); });
++    if (routeShown && routePts.length > 1) {
++      c.beginPath(); routePts.forEach(([x, y], i) => i ? c.lineTo(x * w, y * h) : c.moveTo(x * w, y * h)); { const gr = c.createLinearGradient(0, 0, w, 0); gr.addColorStop(0, `rgb(${SKC.pri})`); gr.addColorStop(0.45, `rgb(${SKC.accp})`); gr.addColorStop(1, `rgb(${SKC.acc})`); c.strokeStyle = gr; } c.lineWidth = 1.6 * DPR; c.shadowColor = '#9fdcff'; c.shadowBlur = 6 * DPR; c.stroke(); c.shadowBlur = 0;
++      routePts.slice(2, -1).forEach(([x, y], k) => { if (k % 2) return; c.fillStyle = `rgb(${SKC.accp})`; c.beginPath(); c.arc(x * w, y * h, 2.2 * DPR, 0, 7); c.fill(); });
++      const seg = routePts.length - 1, pos = (t * 0.05) % 1 * seg, i0 = Math.floor(pos), fr2 = pos - i0; const [ax, ay] = routePts[i0], [bx, by] = routePts[Math.min(seg, i0 + 1)];
++      c.fillStyle = `rgb(${SKC.pri})`; c.beginPath(); c.arc((ax + (bx - ax) * fr2) * w, (ay + (by - ay) * fr2) * h, 4 * DPR, 0, 7); c.fill();
++      c.fillStyle = `rgb(${SKC.pri})`; c.shadowColor = `rgb(${SKC.pri})`; c.shadowBlur = 14 * DPR; c.beginPath(); c.arc(routePts[0][0] * w, routePts[0][1] * h, 5.5 * DPR, 0, 7); c.fill(); c.shadowBlur = 0;
++      c.strokeStyle = `rgba(${SKC.pri},.5)`; c.beginPath(); c.arc(routePts[0][0] * w, routePts[0][1] * h, 10 * DPR, 0, 7); c.stroke();
++      { const px = routePts[seg][0] * w, py = routePts[seg][1] * h, r = 6 * DPR; c.fillStyle = `rgb(${SKC.acc})`; c.shadowColor = `rgb(${SKC.acc})`; c.shadowBlur = 10 * DPR; c.beginPath(); c.arc(px, py - r * 1.4, r, Math.PI * 0.85, Math.PI * 0.15); c.lineTo(px, py); c.closePath(); c.fill(); c.shadowBlur = 0; c.fillStyle = '#1a0e03'; c.beginPath(); c.arc(px, py - r * 1.4, r * 0.4, 0, 7); c.fill(); }
++    } }
+ }
+ (function loop2() { drawSmall(simT); setTimeout(() => requestAnimationFrame(loop2), 33); })();
+diff --git a/hud/js/live.js b/hud/js/live.js
+index 6c977de..4d5fdad 100644
+--- a/hud/js/live.js
++++ b/hud/js/live.js
+@@ -3,11 +3,17 @@
+    When the service is running, the HUD shows what Jarvis really hears and says;
+    typed input goes to the same brain. Without it, the demo replies above keep working. */
+ let live = null;
++function localFlag(on) {
++  const flag = document.getElementById('localFlag'); if (!flag) return;
++  flag.textContent = on ? '● ON' : '● OFF';
++  flag.classList.toggle('on', !!on); flag.classList.toggle('off', !on);
++  flag.title = on ? '本机语音服务已连接。CPU、内存、网速来自 psutil 短间隔采样。' : '本机语音服务未连接。天气、路线、日程不会用示例数字。';
++}
+ function connectVoice() {
+   let ws;
+   try { ws = new WebSocket('ws://127.0.0.1:8765'); } catch (_) { return setTimeout(connectVoice, 3000); }
+-  ws.onopen = () => { live = ws; document.body.dataset.live = '1'; input.placeholder = '说 “Hey Jarvis”，或在这里打字'; if (state === 'idle') stateText.textContent = '待命中 · 说 "Hey Jarvis"'; };
+-  ws.onclose = () => { if (live === ws) { live = null; delete document.body.dataset.live; } setTimeout(connectVoice, 3000); };
++  ws.onopen = () => { live = ws; document.body.dataset.live = '1'; localFlag(true); input.placeholder = '说 “Hey Jarvis”，或在这里打字'; if (state === 'idle') stateText.textContent = '待命中 · 说 "Hey Jarvis"'; };
++  ws.onclose = () => { if (live === ws) { live = null; delete document.body.dataset.live; localFlag(false); try { paintLink(null); } catch (_) {} } setTimeout(connectVoice, 3000); };
+   ws.onerror = () => { try { ws.close(); } catch (_) {} };
+   ws.onmessage = ev => {
+     let m; try { m = JSON.parse(ev.data); } catch (_) { return; }
+@@ -50,6 +56,7 @@ function connectVoice() {
+     else if (m.type === 'listen') { document.body.dataset.listen = '1'; listenShow(m.on !== false); }   /* the service supports 暂停聆听 */
+     else if (m.type === 'mic') { meterHeard.textContent = m.ok ? '' : m.text; meterHeard.classList.toggle('warn', !m.ok); }
+     else if (m.type === 'agents') agentsUpdate(m);
++    else if (m.type === 'link') { if (window.paintLink) paintLink(m); }
+     else if (m.type === 'llm') { if (m.name) window.JV_NAME = m.name === 'sir' ? '' : m.name; if (window.ONBOARD) ONBOARD.msg(m); }
+   };
+ }
+@@ -62,6 +69,7 @@ const micBar = meterBox.querySelector('#micBar'), wakeBar = meterBox.querySelect
+ let wakeHold = 0;
+ function meter(mic, wake) {
+   micBar.style.width = Math.min(100, Math.sqrt(mic || 0) * 140) + '%';
++  if (window.JVTruth) JVTruth.pushSeries('human', Math.min(1, Math.sqrt(mic || 0) * 1.4));
+   wakeHold = Math.max(wake || 0, wakeHold * 0.85);
+   wakeBar.style.width = Math.min(100, wakeHold * 100) + '%';
+   wakeBar.classList.toggle('hot', wakeHold >= 0.25);
+@@ -69,7 +77,15 @@ function meter(mic, wake) {
+ function liveSend(obj) { if (live && live.readyState === 1) { live.send(JSON.stringify(obj)); return true; } return false; }
+ window.liveSend = liveSend;
+ const demoHandle = handle;
+-handle = q => { q = q.trim(); if (!q) return; if (liveSend({ type: 'text', text: q })) { openTalk(); typeOut('you', q, 12); } else demoHandle(q); };
++handle = q => {
++  q = q.trim(); if (!q) return;
++  if (window.JVTruth && JVTruth.isStandby(q)) {
++    if (liveSend({ type: 'text', text: q })) { openTalk(); typeOut('you', q, 12); }
++    try { dormNow(); } catch (_) {}
++    return;
++  }
++  if (liveSend({ type: 'text', text: q })) { openTalk(); typeOut('you', q, 12); } else demoHandle(q);
++};
+ addEventListener('keydown', e => { if (e.key === 'Escape') liveSend({ type: 'interrupt' }); }, true);
+ const demoStart = startListen, demoStop = stopListen;
+ /* 暂停聆听: one button (and the M key) stops Jarvis hearing anything, wake word included, until it is
+@@ -90,7 +106,14 @@ function listenShow(on) {
+   if (state === 'idle') stateText.textContent = on ? '待命中 · 说 "Hey Jarvis"' : '已暂停聆听 · 可以打字';
+   if (!on) micBar.style.width = wakeBar.style.width = '0%';
+ }
+-function listenToggle() { liveSend({ type: 'listen', on: !listening }); }
++function listenToggle() {
++  if (!live) {
++    meterHeard.textContent = window.JVTruth ? JVTruth.micOffline() : '语音服务未连接';
++    meterHeard.classList.add('warn');
++    return;
++  }
++  liveSend({ type: 'listen', on: !listening });
++}
+ window.listenToggle = listenToggle;
+ listenBtn.addEventListener('click', e => { e.stopPropagation(); listenToggle(); });
+ addEventListener('keydown', e => {
+@@ -98,8 +121,35 @@ addEventListener('keydown', e => {
+   if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && live
+       && !(t && (/INPUT|TEXTAREA|SELECT/.test(t.tagName) || t.isContentEditable))) { e.preventDefault(); listenToggle(); }
+ });
+-listenShow(true);
++listening = false;
++listenBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0"></path><path d="M12 18v3"></path><path d="M4 4l16 16"></path></svg><span>未连接</span>';
++listenBtn.title = '语音服务未连接，麦克风没有在听';
+ startListen = () => { if (!live) return demoStart(); openTalk(); clearInterval(typeTimer); sub.innerHTML = '<span class="who">JARVIS</span>直接说 “Hey Jarvis”，我一直在听。'; };
+ ['#mic', '#btnMic'].forEach(q => { const b = document.querySelector(q); if (b) b.addEventListener('click', e => { if (live) { e.stopImmediatePropagation(); listenToggle(); } }, true); });
+ stopListen = () => { if (!live) demoStop(); };
++const shieldPop = document.createElement('div');
++shieldPop.id = 'shieldPop'; shieldPop.className = 'shield-pop'; shieldPop.hidden = true;
++function paintLink(m) {
++  const lines = window.JVTruth ? JVTruth.linkLines(m && m.type === 'link' ? m : null) : ['状态未知'];
++  shieldPop.innerHTML = lines.map(t => `<div>${escapeHtml(t)}</div>`).join('');
++}
++window.paintLink = paintLink;
++paintLink(null);
++const shieldBtn = document.getElementById('btnShield');
++if (shieldBtn) {
++  const wrap = document.createElement('div');
++  wrap.className = 'menu-wrap';
++  shieldBtn.parentNode.insertBefore(wrap, shieldBtn);
++  wrap.appendChild(shieldBtn);
++  wrap.appendChild(shieldPop);
++  shieldBtn.addEventListener('click', e => {
++    e.stopPropagation();
++    const open = shieldPop.hidden;
++    shieldPop.hidden = !open;
++    shieldBtn.setAttribute('aria-expanded', String(open));
++    if (open && !liveSend({ type: 'link' })) paintLink(null);
++  });
++  document.addEventListener('click', e => { if (!e.target.closest('#shieldPop') && e.target !== shieldBtn && !shieldBtn.contains(e.target)) { shieldPop.hidden = true; shieldBtn.setAttribute('aria-expanded', 'false'); } });
++}
++localFlag(false);
+ connectVoice();
+diff --git a/hud/js/panels.js b/hud/js/panels.js
+index abe0acc..bb35116 100644
+--- a/hud/js/panels.js
++++ b/hud/js/panels.js
+@@ -14,45 +14,71 @@ AGENTS.forEach(a => {
+   b.innerHTML = `<span class="ring" style="color:${a.c}"><svg viewBox="0 0 24 24">${a.icon}</svg></span><span><span class="name">${a.name}<small>${a.zh}</small></span><span class="desc">${a.desc}</span></span><canvas width="144" height="52"></canvas><span class="dot"></span><span class="bar"><i></i></span>`;
+   b.addEventListener('click', () => agentClick(a.id));
+   agentBox.appendChild(b);
+-  a.el = b; a.cv = b.querySelector('canvas'); a.ph = Math.random() * 10; a.desc0 = a.desc;
++  a.el = b; a.cv = b.querySelector('canvas'); a.cv.title = '示意波形，状态以文字为准'; a.ph = Math.random() * 10; a.desc0 = a.desc; a.state = '';
+ });
+ function agentsUpdate(m) {
+   (m.items || []).forEach(it => {
+     const a = AGENTS.find(x => x.id === it.id); if (!a) return;
+     const el = a.el;
++    a.state = it.state || '';
+     el.classList.toggle('run', it.state === 'run'); el.classList.toggle('warn', it.state === 'warn');
+     el.classList.toggle('off', it.state === 'off'); el.classList.toggle('live', it.state === 'run' || it.state === 'warn');
+     el.querySelector('.desc').textContent = a.desc0 = it.desc || '';
+     el.title = it.desc || '';
+     el.querySelector('.bar i').style.width = it.state === 'run' ? Math.round((it.progress || 0.5) * 100) + '%' : it.state === 'warn' ? '100%' : '0%';
+   });
++  if (window.JVTruth) JVTruth.pushSeries('agent', JVTruth.agentLevel(m.items));
+ }
+ function agentClick(id) {
+-  if (id === 'brain' && typeof brainOpen === 'function') return brainOpen();
+-  if (id === 'learn' && typeof brainOpen === 'function') { brainOpen(); try { bwTopView('ab'); liveSend({ type: 'brain_abilities' }); } catch (_) {} return; }
+-  handle(id === 'jobs' ? '后台任务进行得怎么样了？' : '昨天的复盘有什么建议？');
++  const a = AGENTS.find(x => x.id === id);
++  const act = window.JVTruth ? JVTruth.agentAction(id, a && a.state) : { type: 'ask', text: '' };
++  if (act.type === 'blocked') {
++    try { openTalk(); } catch (_) {}
++    const line = (a && (a.desc0 || a.desc)) || act.text;
++    try { sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(line); } catch (_) {}
++    return;
++  }
++  if (act.type === 'open-brain' && typeof brainOpen === 'function') return brainOpen();
++  if (act.type === 'open-learn' && typeof brainOpen === 'function') { brainOpen(); try { bwTopView('ab'); liveSend({ type: 'brain_abilities' }); } catch (_) {} return; }
++  if (act.type === 'ask') handle(act.text);
+ }
+ 
+-let done = 0, total = 0;
+-let TASKS = [];          // filled from the real day plan (schedule messages)
++let done = 0, total = 0, scheduleKnown = false;
++let TASKS = [];          // unused sample list; the report stays empty until a schedule message
+ let liveTasks = null;   // from the real day plan: [title, status word, class]
+ function renderReport() {
++  const em = document.querySelector('#pReport .done em');
++  if (!scheduleKnown) {
++    $('#totalNum').textContent = '–';
++    $('#gaugeArc').style.strokeDashoffset = '226.2';
++    $('#gaugeNum').textContent = '–';
++    $('#doneNum').textContent = '–';
++    $('#segs').innerHTML = '';
++    if (em) em.textContent = '尚未同步';
++    $('#tasks').innerHTML = '<li class="new"><i></i><span style="color:var(--ink-3)">日程还没从本机同步，这里不会显示示例任务</span><b></b></li>';
++    return;
++  }
+   const pct = total ? Math.round(done / total * 100) : 0;
+   $('#totalNum').textContent = total;
+   $('#gaugeArc').style.strokeDashoffset = (226.2 * (1 - pct / 100)).toFixed(1);
+   animateNum($('#gaugeNum'), pct); $('#doneNum').textContent = done;
++  if (em) em.textContent = total ? '任务已完成' : '今天没有任务';
+   $('#segs').innerHTML = Array.from({ length: 8 }, (_, i) => `<i class="${i < Math.floor(pct / 12.5) ? 'on' : i === Math.floor(pct / 12.5) ? 'half' : ''}"></i>`).join('');
+-  if (liveTasks) $('#tasks').innerHTML = liveTasks.length ? liveTasks.map(([n, w, c]) => `<li class="${c}"><i></i><span>${escapeHtml(n)}</span><b style="font-size:12.5px">${w}</b></li>`).join('') : '<li class="new"><i></i><span style="color:var(--ink-3)">还没有任务，告诉我今天要做什么</span><b></b></li>';
+-  else $('#tasks').innerHTML = TASKS.map(([n, p]) => `<li class="${p === 100 ? 'ok' : p >= 70 ? 'go' : p >= 40 ? 'slow' : 'new'}"><i></i><span>${n}</span><b>${p}%</b></li>`).join('');
++  if (liveTasks) $('#tasks').innerHTML = liveTasks.length ? liveTasks.map(([n, w, c]) => `<li class="${c}"><i></i><span>${escapeHtml(n)}</span><b style="font-size:12.5px">${escapeHtml(String(w))}</b></li>`).join('') : '<li class="new"><i></i><span style="color:var(--ink-3)">还没有任务，告诉我今天要做什么</span><b></b></li>';
++  else $('#tasks').innerHTML = TASKS.map(([n, p]) => `<li class="${p === 100 ? 'ok' : p >= 70 ? 'go' : p >= 40 ? 'slow' : 'new'}"><i></i><span>${escapeHtml(n)}</span><b>${p}%</b></li>`).join('');
+ }
+ function animateNum(el, to) { const from = +el.textContent || 0; const t0 = performance.now(); (function s(now) { const k = Math.min(1, (now - t0) / 1200); el.textContent = Math.round(from + (to - from) * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(s); })(t0); }
+ renderReport();
+ 
+-let SCHED = [['09:00', '09:30', '团队站会', '项目进展与重点对齐'], ['09:30', '11:00', '方案评审', '贾维斯交互方案讨论'], ['11:00', '12:00', '深度研究', '多模态模型调研'], ['13:30', '15:00', '开发迭代', 'Agent 工具链集成'], ['15:30', '16:30', '项目复盘', '里程碑与风险梳理'], ['17:00', '18:00', '文档整理', '技术文档与下一步计划']];
++let SCHED = [];          // only the voice service's schedule message may fill this
+ const toMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+ function schedInfo() { const d = new Date(); const now = d.getHours() * 60 + d.getMinutes(); let cur = -1, next = -1; SCHED.forEach((s, i) => { if (now >= toMin(s[0]) && now < toMin(s[1])) cur = i; if (next < 0 && toMin(s[0]) > now) next = i; }); return { now, cur, next }; }
+ let TODO = [];          // live items without a time
+ function renderSched() {
++  if (!scheduleKnown) {
++    $('#sched').innerHTML = '<li><i></i><span class="t">今天</span><span><b>尚未同步</b><span>连上本机语音服务后显示日程文件。未连接时不显示示例安排。</span></span></li>';
++    return;
++  }
+   const { now, cur, next } = schedInfo();
+   const fi = cur >= 0 ? cur : next;
+   const timed = SCHED.map((s, i) => `<li class="${s[4] ? 'past' : i === fi ? 'focus' : toMin(s[1]) <= now ? 'past' : ''}"><i></i><span class="t">${s[0]}${s[5] === false ? '' : ' – ' + s[1]}${i === fi && !s[4] ? '<span class="arr">→</span>' : ''}</span><span><b>${escapeHtml(s[2])}${s[4] ? ' ✓' : ''}</b><span>${escapeHtml(s[3] || '')}</span></span></li>`);
+@@ -61,6 +87,7 @@ function renderSched() {
+ }
+ /* the real day plan from the voice service replaces the demo data */
+ function applySchedule(items) {
++  scheduleKnown = true;
+   const hm = m => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+   const timed = items.filter(x => x.start), now = new Date().getHours() * 60 + new Date().getMinutes();
+   SCHED = timed.map(x => [x.start, x.end || hm(toMin(x.start) + 30), x.title || x.title_en, x.note, !!x.done, !!x.end]);
+@@ -84,16 +111,42 @@ const WX_ICON = {
+   fog: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 9h16M6 13h12M4 17h16"></path></svg>'
+ };
+ const wxKind = w => /雪/.test(w) ? 'snow' : /雨/.test(w) ? 'rain' : /雾|霾|沙|尘/.test(w) ? 'fog' : /晴/.test(w) ? (/云/.test(w) ? 'part' : 'sun') : /少云|多云/.test(w) ? 'part' : 'cloud';
++function paintWxDays(days) {
++  const box = $('#pWeather .wx-days');
++  const label = ['今天', '明天'];
++  if (!days.length) { box.innerHTML = '<div>今天<b>—</b></div><div>明天<b>—</b></div><div>后天<b>—</b></div>'; return; }
++  box.innerHTML = days.map((d, i) => {
++    const wk = WD[+d.week % 7] || '';
++    return `<div>${label[i] || wk}${WX_ICON[wxKind(d.day || '')]}<b>${escapeHtml(String(d.low))}°/${escapeHtml(String(d.high))}°</b></div>`;
++  }).join('');
++}
+ function wxUpdate(m) {
+-  wxLive = true;
++  const view = window.JVTruth ? JVTruth.weatherView(m) : null;
+   const big = $('#pWeather .wx-big');
+-  big.querySelector('b').firstChild.textContent = m.temp;
+-  big.querySelector('svg').outerHTML = WX_ICON[wxKind(m.now)].replace('<svg ', '<svg aria-hidden="true" ');
+-  $('#pWeather .wx-now > span').textContent = m.now;
+-  $('#pWeather .wx-now .meta').innerHTML = `<span>${escapeHtml((m.city || '').replace(/市$/, ''))}</span><span>湿度 ${m.humidity}%</span>`;
+-  const label = ['今天', '明天'], days = $('#pWeather .wx-days').children;
+-  (m.days || []).slice(0, 3).forEach((d, i) => {
+-    const wk = WD[+d.week % 7];
+-    days[i].innerHTML = `${label[i] || wk}${WX_ICON[wxKind(d.day)]}<b>${d.low}°/${d.high}°</b>`;
+-  });
++  const word = $('#pWeather .wx-now > span');
++  const meta = $('#pWeather .wx-now .meta');
++  const src = $('#wxSrc');
++  if (!view || view.state !== 'live') {
++    wxLive = false;
++    if (big.querySelector('b').firstChild) big.querySelector('b').firstChild.textContent = '—';
++    const degOff = big.querySelector('.deg'); if (degOff) degOff.textContent = '°';
++    if (word) word.textContent = view ? view.word : '天气未同步';
++    if (meta) meta.innerHTML = `<span>${escapeHtml(view ? view.meta : '等待本机服务，不显示示例城市')}</span>`;
++    paintWxDays([]);
++    if (src) src.textContent = '';
++    return;
++  }
++  wxLive = true;
++    if (big.querySelector('b').firstChild) big.querySelector('b').firstChild.textContent = view.temp;
++    const deg = big.querySelector('.deg'); if (deg) deg.textContent = '°C';
++  const icon = WX_ICON[wxKind(view.word)] || WX_ICON.cloud;
++  const svg = big.querySelector('svg');
++  if (svg) svg.outerHTML = icon.replace('<svg ', '<svg aria-hidden="true" ');
++  if (word) word.textContent = view.word;
++  const bits = [`<span>${escapeHtml(view.city)}</span>`];
++  if (view.extra) bits.push(`<span>${escapeHtml(view.extra)}</span>`);
++  if (view.aqi != null) bits.push(`<span>AQI ${escapeHtml(String(view.aqi))}</span>`);
++  if (meta) meta.innerHTML = bits.join('');
++  paintWxDays(view.days);
++  if (src) src.textContent = view.source;
+ }
+diff --git a/hud/js/talk.js b/hud/js/talk.js
+index 76ad794..0be7951 100644
+--- a/hud/js/talk.js
++++ b/hud/js/talk.js
+@@ -24,28 +24,17 @@ function focusPanel(id) { const el = document.getElementById(id); if (!el) retur
+ let approvalBox = null;
+ 
+ function respond(q) {
+-  const { cur, next } = schedInfo();
+-  if (/安排|日程|会议|今天.*(干|做)|几点/.test(q)) {
+-    focusPanel('pSched');
+-    const left = SCHED.filter((s, i) => i >= (cur >= 0 ? cur : next >= 0 ? next : SCHED.length)).length;
+-    if (cur >= 0) return `现在是${SCHED[cur][2]}，到 ${SCHED[cur][1]} 结束。今天还剩 ${left} 项安排。`;
+-    if (next >= 0) return `今天还有 ${left} 项安排。下一项是 ${SCHED[next][0]} 的${SCHED[next][2]}，内容是${SCHED[next][3]}。`;
+-    return '今天的安排都结束了。要我帮你把明天的计划排一下吗？';
+-  }
+-  if (/天气|出行|下雨|温度|穿|路况|通勤/.test(q)) { focusPanel('pWeather'); return '上海今天多云，18 度，空气优。明天 16 到 24 度。去张江科学城现在出发大约 32 分钟，路上畅通。'; }
+-  if (/大脑|任务|学习|复盘|agent/i.test(q)) { focusPanel('pAgents'); return '语音服务没连上，左边的 Agent 面板暂时没有实时数据。'; }
+-  if (/汇报|总结|进度|工作|完成/.test(q)) {
+-    focusPanel('pReport');
+-    const rest = TASKS.filter(t => t[1] < 100).map(t => t[0].replace(/\s*\(.*\)/, '')).join('、');
+-    return `今天 12 项任务完成了 ${done} 项，进度 ${Math.round(done / 12 * 100)}%。还没做完的是${rest}。`;
+-  }
+-  if (/你好|在吗|贾维斯|jarvis/i.test(q)) return '我在。有什么需要？';
+-  return '我在。语音服务还没连上，现在只能演示日程和天气。';
++  if (/安排|日程|会议|今天.*(干|做)|几点/.test(q)) focusPanel('pSched');
++  else if (/天气|出行|下雨|温度|穿|路况|通勤/.test(q)) focusPanel('pWeather');
++  else if (/大脑|任务|学习|复盘|agent/i.test(q)) focusPanel('pAgents');
++  else if (/汇报|总结|进度|工作|完成/.test(q)) focusPanel('pReport');
++  return window.JVTruth ? JVTruth.offlineReply(q) : '语音服务没连上。我不会用示例天气或示例日程回答。';
+ }
+ 
+ let busy = false;
+ let handle = function (q) {
+   q = q.trim(); if (!q) return;
++  if (window.JVTruth && JVTruth.isStandby(q)) { try { dormNow(); } catch (_) {} return; }
+   try { speechSynthesis.cancel(); } catch (_) {}
+   busy = true;
+   typeOut('you', q, 18, () => {
+@@ -65,21 +54,16 @@ $('#btnMic').addEventListener('click', () => toggleListen());
+ $('#btnMenu').addEventListener('click', e => { const pop = $('#menuPop'); pop.hidden = !pop.hidden; e.currentTarget.setAttribute('aria-expanded', String(!pop.hidden)); });
+ document.addEventListener('click', e => { if (!e.target.closest('.menu-wrap')) { $('#menuPop').hidden = true; $('#btnMenu').setAttribute('aria-expanded', 'false'); } });
+ 
+-let listenTimer = null, sampleIdx = 0, heard = '';
++let listenTimer = null;
+ function startListen() {
+   if (state === 'listening') return;
+   try { speechSynthesis.cancel(); } catch (_) {}
+-  clearInterval(typeTimer); setState('listening');
+-  heard = SAMPLES[sampleIdx++ % SAMPLES.length];
+-  sub.innerHTML = '<span class="who you">YOU</span><span style="color:var(--ink-3)">正在聆听…</span>';
+-  let i = 0; clearInterval(listenTimer);
+-  setTimeout(() => { listenTimer = setInterval(() => { if (state !== 'listening') return clearInterval(listenTimer); i = Math.min(heard.length, i + 1); sub.innerHTML = '<span class="who you">YOU</span>' + escapeHtml(heard.slice(0, i)) + '<span class="caret"></span>'; }, 90); }, 500);
++  clearInterval(typeTimer); clearInterval(listenTimer); setState('listening');
++  sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(window.JVTruth ? JVTruth.micOffline() : '语音服务没连上，麦克风没有在听。');
+ }
+ function stopListen() {
+   if (state !== 'listening') return; clearInterval(listenTimer);
+-  setState('thinking');
+-  sub.innerHTML = '<span class="who you">YOU</span>' + escapeHtml(heard);
+-  setTimeout(() => speak(respond(heard)), 1100);
++  setState('idle');
+ }
+ let clickListen = null;
+ function toggleListen() { if (state === 'listening') { clearTimeout(clickListen); stopListen(); } else { startListen(); clearTimeout(clickListen); clickListen = setTimeout(stopListen, 3200); } }
+diff --git a/hud/js/truth.js b/hud/js/truth.js
+new file mode 100644
+index 0000000..dcdffee
+--- /dev/null
++++ b/hud/js/truth.js
+@@ -0,0 +1,166 @@
++'use strict';
++/* Pure HUD state: what the panels may claim. No DOM, no network.
++   Loaded as a classic script in the window, and runnable under node for tests. */
++(function (root) {
++  function rate(b) {
++    if (b == null || !Number.isFinite(b)) return '--';
++    if (b >= 1e6) return (b / 1e6).toFixed(1) + 'MB/s';
++    if (b >= 1e3) return Math.round(b / 1e3) + 'KB/s';
++    return Math.round(b) + 'B/s';
++  }
++  function clock(sec) {
++    if (!sec) return '';
++    const d = new Date(sec * 1000), p = n => String(n).padStart(2, '0');
++    return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
++  }
++  function weatherView(m) {
++    if (!m || m.ok === false) {
++      const uncfg = !m || m.reason === 'unconfigured' || m.reason === 'offline';
++      return {
++        state: uncfg ? 'unconfigured' : 'error',
++        temp: '—',
++        word: uncfg ? '天气未配置' : '天气暂不可用',
++        city: '',
++        extra: '',
++        meta: (m && m.detail) || (uncfg ? '需要本机高德密钥。界面不读取密钥，也不显示示例城市。' : '查询失败'),
++        aqi: null,
++        days: [],
++        source: ''
++      };
++    }
++    const city = String(m.city || '').replace(/市$/, '');
++    const bits = [];
++    if (m.source === 'amap' || m.source === '高德') bits.push('高德');
++    else if (m.source) bits.push(String(m.source));
++    if (m.report_time) bits.push('观测 ' + m.report_time);
++    if (m.served_at) bits.push('送到界面 ' + clock(m.served_at));
++    return {
++      state: 'live',
++      temp: m.temp == null ? '—' : String(m.temp),
++      word: m.now || '',
++      city: city,
++      extra: m.humidity == null ? '' : ('湿度 ' + m.humidity + '%'),
++      meta: '',
++      aqi: m.aqi == null ? null : m.aqi,
++      days: (m.days || []).slice(0, 3),
++      source: bits.join(' · ')
++    };
++  }
++  function tripView(m) {
++    if (!m || m.ok === false) {
++      const uncfg = !m || m.reason === 'unconfigured' || m.reason === 'offline';
++      return {
++        state: uncfg ? 'unconfigured' : 'empty',
++        title: '还没有路线',
++        meta: (m && m.detail) || (uncfg ? '未配置高德，不显示示例行程' : '说一个目的地后再查询'),
++        eta: '—',
++        path: null,
++        mode: '',
++        line: ''
++      };
++    }
++    return {
++      state: 'live',
++      title: '去 ' + (m.to || ''),
++      meta: (m.minutes == null ? '—' : m.minutes + ' 分钟') + (m.km == null ? '' : '  ' + m.km + ' km'),
++      eta: m.eta || '—',
++      path: m.path || null,
++      mode: m.mode || '',
++      line: m.line || '',
++      source: m.source === 'amap' ? '高德' : (m.source || '')
++    };
++  }
++  function sysView(m, nowSec, cpuHot) {
++    if (!m || m.ok === false) {
++      return {
++        state: m && m.reason === 'missing' ? 'missing' : 'down',
++        cpu: '--', mem: '--', net: '--',
++        cpuHot: false, memHot: false,
++        title: (m && m.detail) || '系统采样不可用，不显示估算数字'
++      };
++    }
++    const age = m.sampled_at ? Math.max(0, nowSec - m.sampled_at) : 0;
++    const stale = age > 15;
++    const cpu = (m.cpu_ready === false || m.cpu == null) ? '--' : (m.cpu + '%');
++    const mem = m.mem == null ? '--' : (m.mem + '%');
++    const net = m.net_ready === false ? '--' : ('↓' + rate(m.down) + ' ↑' + rate(m.up));
++    const win = m.cpu_window_s == null ? '上一间隔' : (m.cpu_window_s + ' 秒');
++    let title = 'psutil · CPU 是距上次采样的占用（' + win + '），不是活动监视器的长窗口 · 内存是虚拟内存占用';
++    if (m.sampled_at) title += ' · 采样 ' + clock(m.sampled_at);
++    if (stale) title += ' · 已超过 15 秒没有新采样';
++    return { state: stale ? 'stale' : 'live', cpu, mem, net, cpuHot: cpuHot >= 5, memHot: m.mem >= 90, title };
++  }
++  const series = { sys: [], human: [], agent: [] };
++  function pushSeries(name, v) {
++    if (!series[name]) return 0;
++    const n = Math.max(0, Math.min(1, Number(v) || 0));
++    series[name].push(n);
++    if (series[name].length > 48) series[name].shift();
++    return series[name].length;
++  }
++  function seriesValues(name) { return (series[name] || []).slice(); }
++  function seriesLength() {
++    return { sys: series.sys.length, human: series.human.length, agent: series.agent.length };
++  }
++  function resetSeries() { series.sys.length = series.human.length = series.agent.length = 0; }
++  function agentLevel(items) {
++    const w = { run: 1, warn: 0.7, done: 0.4, idle: 0.2, off: 0 };
++    if (!items || !items.length) return 0;
++    return items.reduce((s, it) => s + (w[it.state] == null ? 0.2 : w[it.state]), 0) / items.length;
++  }
++  function waveLabel(mode, lens) {
++    lens = lens || seriesLength();
++    if (mode === 1 && lens.sys > 1) return 'SYSTEM · CPU 采样';
++    if (mode === 3 && lens.human > 1) return 'HUMAN · 麦克风电平';
++    if (mode === 0 && lens.agent > 1) return 'AGENT · 状态，不是事件流';
++    if (mode === 2) return 'TOOL · 示意。没有工具事件流，切换标签不会产生调用';
++    return '示意波形 · 尚无采样';
++  }
++  function agentAction(id, state) {
++    if (id === 'brain') return { type: 'open-brain' };
++    if (id === 'learn') return { type: 'open-learn' };
++    if (state === 'off') return { type: 'blocked', text: '这项能力当前不可用' };
++    if (id === 'jobs') return { type: 'ask', text: '后台任务进行得怎么样了？' };
++    if (id === 'review') return { type: 'ask', text: '昨天的复盘有什么建议？' };
++    return { type: 'noop', text: '' };
++  }
++  function isStandby(q) {
++    const s = String(q || '').trim();
++    if (!s || /不要|别|取消|退出待机|醒来|awake/i.test(s)) return false;
++    return /进入待机|^待机$|待机模式|^standby$|go to standby/i.test(s);
++  }
++  function offlineReply(q) {
++    const s = String(q || '');
++    if (/安排|日程|会议|今天.*(干|做)|几点/.test(s))
++      return '语音服务没连上，我不能读取今天的日程。连上后，今日安排只显示本机日程文件里的内容。';
++    if (/天气|出行|下雨|温度|穿|路况|通勤/.test(s))
++      return '语音服务没连上，我不能查询天气或路线。连上后如果没有配置高德密钥，面板会写明未配置，而不会显示示例城市。';
++    if (/大脑|任务|学习|复盘|agent/i.test(s))
++      return '语音服务没连上，左边的 Agent 状态不是实时的。';
++    if (/汇报|总结|进度|工作|完成/.test(s))
++      return '语音服务没连上，工作汇报还没有同步本机日程，完成数不可用。';
++    if (/你好|在吗|贾维斯|jarvis/i.test(s))
++      return '我在。语音服务没连上，现在只能打字，不能查天气、日程或本机状态。';
++    return '语音服务没连上。我不会用示例天气或示例日程回答。可以打字，但查不到实时数据。';
++  }
++  function micOffline() {
++    return '语音服务没连上，麦克风没有在听。按住空格不会假装识别出一句话。';
++  }
++  function linkLines(m) {
++    if (!m || m.voice === false && m.psutil == null && m.amap == null) {
++      return ['语音服务未连接', '天气、路线和日程不会用示例数字冒充', '密钥只留在本机，这个面板不显示密钥'];
++    }
++    return [
++      '语音服务：' + (m.voice ? '已连接' : '未连接'),
++      '系统采样：' + (m.psutil ? 'psutil 可用（CPU 为短间隔占用，内存为虚拟内存）' : '未安装 psutil，不估算'),
++      '语言模型：' + (m.llm ? ('已配置' + (m.llm_provider ? ' · ' + m.llm_provider : '')) : '未配置'),
++      '高德天气与路线：' + (m.amap ? '已配置密钥' : '未配置'),
++      'DeepSeek Harness：' + (m.harness ? '已安装' : '未安装'),
++      '此处不显示任何密钥或接口地址'
++    ];
++  }
++  root.JVTruth = {
++    rate, clock, weatherView, tripView, sysView, pushSeries, seriesValues, seriesLength, resetSeries,
++    agentLevel, waveLabel, agentAction, isStandby, offlineReply, micOffline, linkLines
++  };
++})(typeof globalThis !== 'undefined' ? globalThis : this);
+diff --git a/jarvis/hud_truth.py b/jarvis/hud_truth.py
+new file mode 100644
+index 0000000..e620a3e
+--- /dev/null
++++ b/jarvis/hud_truth.py
+@@ -0,0 +1,70 @@
++"""Messages the HUD may show for weather, routes, and the local link light.
++
++The window used to keep a Shanghai / 张江科学城 sample on screen whenever AMap was
++not configured, and it hid the "demo data" label as soon as the voice socket
++connected. These helpers tell the truth instead: unconfigured, failed, or no
++route yet. They never include API keys.
++"""
++import re
++
++_SECRET = re.compile(r"(key|token|secret|api_key|access_key)=([^&\s\"']+)", re.I)
++_URL = re.compile(r"https?://\S+")
++_PROVIDER = re.compile(r"[A-Za-z0-9._-]{1,32}")
++
++WEATHER_UNCONFIGURED = "未配置高德 Web 服务密钥。天气留空，不显示示例城市。"
++WEATHER_ERROR = "天气查询失败。"
++TRIP_UNCONFIGURED = "未配置高德，不显示示例行程。"
++TRIP_NONE = "还没有路线。说出目的地后再查询；工作日早晨若已保存家和公司，会尝试通勤路线。"
++
++
++def public_error(text) -> str:
++    """A short error safe to put on screen or in the local log."""
++    s = _SECRET.sub(lambda m: m.group(1) + "=…", str(text or ""))
++    s = _URL.sub("…", s).replace("\n", " ").strip()
++    return (s or WEATHER_ERROR)[:180]
++
++
++def weather_message(*, has_key, weather=None, error=""):
++    if not has_key:
++        return {"type": "weather", "ok": False, "reason": "unconfigured", "detail": WEATHER_UNCONFIGURED}
++    if error or not weather:
++        return {"type": "weather", "ok": False, "reason": "error", "detail": public_error(error) or WEATHER_ERROR}
++    msg = dict(weather)
++    msg["type"] = "weather"
++    msg["ok"] = True
++    msg["source"] = "amap"
++    return msg
++
++
++def trip_message(*, has_key, has_route):
++    if not has_key:
++        return {"type": "trip", "ok": False, "reason": "unconfigured", "detail": TRIP_UNCONFIGURED}
++    if not has_route:
++        return {"type": "trip", "ok": False, "reason": "none", "detail": TRIP_NONE}
++    return None
++
++
++def world_messages(*, has_amap, has_key, weather=None, weather_error="", has_route=False):
++    """What push_world should send. A real route is broadcast separately by push_trip."""
++    key = bool(has_amap and has_key)
++    msgs = [weather_message(has_key=key, weather=weather, error=weather_error)]
++    trip = trip_message(has_key=key, has_route=has_route)
++    if trip:
++        msgs.append(trip)
++    return msgs
++
++
++def link_message(*, voice, psutil, llm, llm_provider="", amap, harness):
++    """Booleans only. Provider is a short name, never a URL or a key."""
++    name = str(llm_provider or "")
++    if not _PROVIDER.fullmatch(name):
++        name = ""
++    return {
++        "type": "link",
++        "voice": bool(voice),
++        "psutil": bool(psutil),
++        "llm": bool(llm),
++        "llm_provider": name,
++        "amap": bool(amap),
++        "harness": bool(harness),
++    }
+diff --git a/jarvis/service.py b/jarvis/service.py
+index d82bb8c..229b6d0 100644
+--- a/jarvis/service.py
++++ b/jarvis/service.py
+@@ -20,7 +20,7 @@ from .aec import EchoCanceller
+ from .engine import VoiceEngine
+ from .tts import make_speaker, SR_OUT
+ from .brain import answer_pair
+-from . import config, paths, sysmon, schedule, brain, memory, tools
++from . import config, paths, sysmon, schedule, brain, memory, tools, hud_truth
+ 
+ SR_IN = models.SR
+ 
+@@ -194,21 +194,54 @@ class Service:
+             log(f"schedule: {e}")
+ 
+     # -- weather and routes (AMap plugin) -------------------------------------
+-    def push_world(self):
++    def link_msg(self):
++        """What is configured, without keys, URLs, or file paths."""
+         amap = tools.plugin("amap")
+-        if not amap or not amap.key():
+-            return
++        harness = tools.plugin("harness")
+         try:
+-            self.broadcast({"type": "weather", **amap.weather()})
+-        except Exception as e:
+-            log(f"weather: {e}")
+-        try:                                    # weekday mornings: the commute to work
+-            ps, now = amap.places(), time.localtime()
+-            if "home" in ps and "work" in ps and now.tm_wday < 5 and 6 <= now.tm_hour < 10 and not self.trip_shown:
+-                amap.LAST_ROUTE = amap.route("work")
+-                self.push_trip()
+-        except Exception as e:
+-            log(f"commute: {e}")
++            from . import onboard
++            llm = onboard.status()
++        except Exception:
++            llm = {}
++        try:
++            harness_on = bool(harness and harness.available())
++        except Exception:
++            harness_on = False
++        return hud_truth.link_message(
++            voice=True, psutil=sysmon.psutil is not None,
++            llm=bool(llm.get("configured")), llm_provider=str(llm.get("provider") or ""),
++            amap=bool(amap and amap.key()), harness=harness_on)
++
++    def push_world(self):
++        """Weather, and a commute route on weekday mornings. Missing AMap is an explicit empty state."""
++        amap = tools.plugin("amap")
++        has_key = bool(amap and amap.key())
++        weather, err = None, ""
++        if has_key:
++            try:
++                weather = amap.weather()
++                weather = {**weather, "served_at": time.time()}
++            except Exception as e:
++                err = hud_truth.public_error(e)
++                log(f"weather: {err}")
++        sent_trip = False
++        if has_key:
++            try:                                # weekday mornings: the commute to work
++                ps, now = amap.places(), time.localtime()
++                if "home" in ps and "work" in ps and now.tm_wday < 5 and 6 <= now.tm_hour < 10 and not self.trip_shown:
++                    amap.LAST_ROUTE = amap.route("work")
++                    self.push_trip()
++                    sent_trip = True
++            except Exception as e:
++                log(f"commute: {hud_truth.public_error(e)}")
++        route = amap.LAST_ROUTE if amap else None
++        for msg in hud_truth.world_messages(has_amap=bool(amap), has_key=has_key, weather=weather,
++                                            weather_error=err, has_route=bool(route)):
++            self.broadcast(msg)
++        if route and not sent_trip:
++            # a window that connects later still sees the last real route, not the sample commute
++            slim = {k: v for k, v in route.items() if k not in ("nav_url", "holo")}
++            self.broadcast({"type": "trip", "source": "amap", **slim})
+ 
+     def push_trip(self):
+         amap = tools.plugin("amap")
+@@ -227,7 +260,7 @@ class Service:
+                 r["holo"]["map"] = amap.static_map(r["holo"])
+             except Exception as e:
+                 log(f"static map: {e}")
+-        self.broadcast({"type": "trip", **{k: v for k, v in r.items() if k != "nav_url"}, "qr": qr})
++        self.broadcast({"type": "trip", "source": "amap", **{k: v for k, v in r.items() if k != "nav_url"}, "qr": qr})
+ 
+     def harness_done(self, task, ok, answer):
+         """A DeepSeek Harness job ended: let the model sum it up, then say it once nobody is mid-conversation."""
+@@ -592,6 +625,7 @@ class Service:
+                 if self.mic_msg:
+                     await ws.send(json.dumps(self.mic_msg, ensure_ascii=False))
+                 await ws.send(json.dumps({"type": "listen", "on": not self.muted}))
++                await ws.send(json.dumps(self.link_msg(), ensure_ascii=False))
+             except Exception:
+                 pass
+             threading.Thread(target=self.push_world, daemon=True).start()
+@@ -619,6 +653,8 @@ class Service:
+                             threading.Thread(target=em.msg, args=(msg,), daemon=True).start()
+                     elif msg.get("type") == "listen":        # 暂停聆听 / 恢复聆听
+                         self.set_listening(bool(msg.get("on")))
++                    elif msg.get("type") == "link":          # shield: configured or not, never the keys
++                        await ws.send(json.dumps(self.link_msg(), ensure_ascii=False))
+                     elif msg.get("type") == "holo_list":     # the 3D 拆解 library asks what is stored
+                         from . import hologram
+                         items = await asyncio.get_running_loop().run_in_executor(None, hologram.catalog)
+@@ -660,8 +696,11 @@ class Service:
+                         st = sysmon.sample()
+                         if st:
+                             self.broadcast({"type": "sys", **st})
++                        elif not getattr(self, "_sys_missing", False):
++                            self._sys_missing = True
++                            self.broadcast({"type": "sys", **sysmon.unavailable()})
+                     except Exception as e:
+-                        log(f"sysmon: {e}")
++                        log(f"sysmon: {hud_truth.public_error(e)}")
+                 elif os.environ.get("JARVIS_STAY_ON") != "1" and time.time() - self.seen > 20:
+                     # the Jarvis window is gone (closed or crashed): stop listening until it opens again
+                     log("no Jarvis window connected, stopping")
+diff --git a/jarvis/sysmon.py b/jarvis/sysmon.py
+index e8e88b2..5805acb 100644
+--- a/jarvis/sysmon.py
++++ b/jarvis/sysmon.py
+@@ -1,17 +1,28 @@
+ """Live system numbers for the HUD's top bar and for questions like "what's using my CPU?".
+-Everything is read locally with psutil; nothing leaves this computer."""
++Everything is read locally with psutil; nothing leaves this computer.
++
++CPU is psutil's percent since the previous sample() call (a short window, not Activity Monitor's
++longer average). The first call has no window yet, so cpu_ready is false and the HUD must not
++draw a number. Memory is virtual_memory().percent."""
+ import time
+ 
+ try:
+     import psutil
+-except ImportError:          # older installs: the HUD simply keeps its placeholders
++except ImportError:          # the HUD is told, and does not invent percentages
+     psutil = None
+ 
+ _last = {"t": 0.0, "sent": 0, "recv": 0}
+ 
+ 
++def unavailable():
++    return {"ok": False, "source": "psutil", "reason": "missing",
++            "detail": "未安装 psutil，不显示估算的 CPU、内存和网速"}
++
++
+ def sample():
+-    """CPU %, memory %, network up/down in bytes per second, disk free %, battery."""
++    """CPU %, memory %, network up/down in bytes per second, disk free %, battery.
++
++    cpu_ready / net_ready are false on the first call: there is no previous sample to compare."""
+     if not psutil:
+         return None
+     now = time.time()
+@@ -19,10 +30,20 @@ def sample():
+     dt = now - _last["t"] if _last["t"] else 0.0
+     up = (io.bytes_sent - _last["sent"]) / dt if dt else 0.0
+     down = (io.bytes_recv - _last["recv"]) / dt if dt else 0.0
++    first = not _last["t"]
+     _last.update(t=now, sent=io.bytes_sent, recv=io.bytes_recv)
+-    out = {"cpu": round(psutil.cpu_percent(interval=None)), "mem": round(psutil.virtual_memory().percent),
+-           "up": max(0, round(up)), "down": max(0, round(down)),
+-           "disk_free": round(100 - psutil.disk_usage("/").percent)}
++    cpu = psutil.cpu_percent(interval=None)
++    out = {"ok": True, "source": "psutil",
++           "cpu": None if first else round(cpu), "cpu_ready": not first,
++           "cpu_window_s": round(dt, 2) if dt else None,
++           "mem": round(psutil.virtual_memory().percent), "mem_kind": "virtual_percent",
++           "up": None if not dt else max(0, round(up)),
++           "down": None if not dt else max(0, round(down)),
++           "net_ready": bool(dt), "sampled_at": now}
++    try:
++        out["disk_free"] = round(100 - psutil.disk_usage("/").percent)
++    except Exception:
++        out["disk_free"] = None
+     try:
+         b = psutil.sensors_battery()
+         if b:
+@@ -44,6 +65,8 @@ def report(top=5):
+         except Exception:
+             pass
+     time.sleep(0.5)            # cpu_percent needs two readings
++    if not s.get("cpu_ready"):
++        s = sample() or s
+     busy = []
+     for p in psutil.process_iter(["name", "memory_percent"]):
+         try:
+diff --git a/tests/test_hud_truth.js b/tests/test_hud_truth.js
+new file mode 100644
+index 0000000..ac5a8e0
+--- /dev/null
++++ b/tests/test_hud_truth.js
+@@ -0,0 +1,82 @@
++'use strict';
++/* Node test for hud/js/truth.js. No browser, no voice service, no network.
++   node tests/test_hud_truth.js
++   Passing here does not mean the Mac installation was tested. */
++const fs = require('fs');
++const path = require('path');
++const vm = require('vm');
++const code = fs.readFileSync(path.join(__dirname, '..', 'hud', 'js', 'truth.js'), 'utf8');
++const ctx = { globalThis: {}, console };
++ctx.globalThis = ctx;
++vm.runInNewContext(code, ctx);
++const T = ctx.JVTruth;
++if (!T) throw new Error('JVTruth missing');
++
++function assert(cond, msg) { if (!cond) throw new Error(msg || 'assert'); }
++
++const offlineWx = T.offlineReply('明天天气怎么样？');
++assert(!/18|张江|AQI|空气优/.test(offlineWx), offlineWx);
++assert(/未配置|没连上/.test(offlineWx), offlineWx);
++assert(/日程/.test(T.offlineReply('今天有什么安排？')) && !/站会|方案评审/.test(T.offlineReply('今天有什么安排？')), 'schedule');
++assert(/完成数不可用/.test(T.offlineReply('工作进度怎么样')), 'report');
++assert(T.micOffline().includes('不会假装'), 'mic');
++
++assert(T.isStandby('进入待机') === true, 'standby chip');
++assert(T.isStandby('不要进入待机') === false, 'negated');
++assert(T.isStandby('退出待机') === false, 'exit');
++assert(T.isStandby('明天天气怎么样？') === false, 'weather');
++
++const blocked = T.agentAction('jobs', 'off');
++assert(blocked.type === 'blocked', 'off jobs must not ask the brain');
++assert(T.agentAction('brain', 'off').type === 'open-brain', 'brain still opens so the window can say it is missing');
++assert(T.agentAction('review', 'off').type === 'blocked', 'off review must not ask the model');
++assert(T.agentAction('learn', 'idle').type === 'open-learn', 'learn');
++assert(T.agentAction('review', 'idle').type === 'ask', 'review');
++assert(T.agentAction('jobs', 'idle').text.includes('后台任务'), 'jobs ask');
++
++const uncfg = T.weatherView({ type: 'weather', ok: false, reason: 'unconfigured', detail: '未配置高德' });
++assert(uncfg.state === 'unconfigured' && uncfg.temp === '—' && uncfg.aqi == null, 'wx unconfigured');
++assert(!/上海|18/.test(JSON.stringify(uncfg)), 'no sample city');
++const live = T.weatherView({ ok: true, source: 'amap', city: '上海市', now: '多云', temp: '18', humidity: '40',
++  report_time: '2026-11-08 14:00:00', served_at: 1760000000, days: [{ day: '晴', low: '10', high: '20' }] });
++assert(live.state === 'live' && live.city === '上海' && live.aqi == null, 'no invented aqi');
++assert(live.source.includes('高德') && live.source.includes('观测'), live.source);
++const withAqi = T.weatherView({ ok: true, temp: '1', now: '晴', aqi: 36 });
++assert(withAqi.aqi === 36, 'aqi only when provided');
++
++const tripOff = T.tripView({ ok: false, reason: 'unconfigured', detail: '未配置高德，不显示示例行程' });
++assert(tripOff.state === 'unconfigured' && tripOff.eta === '—' && tripOff.path == null, 'trip');
++assert(!/张江|32/.test(JSON.stringify(tripOff)), 'no sample route');
++const tripOn = T.tripView({ ok: true, to: '张江科学城', minutes: 32, km: 24, eta: '23:10', source: 'amap', path: [[0, 0], [1, 1]] });
++assert(tripOn.state === 'live' && tripOn.title === '去 张江科学城' && tripOn.path.length === 2, 'real trip kept');
++
++const now = 1_700_000_000;
++const first = T.sysView({ ok: true, source: 'psutil', cpu: null, cpu_ready: false, mem: 64, net_ready: false, sampled_at: now, mem_kind: 'virtual_percent' }, now, 0);
++assert(first.cpu === '--' && first.net === '--' && first.mem === '64%' && first.state === 'live', JSON.stringify(first));
++assert(first.title.includes('psutil') && first.title.includes('虚拟内存'), first.title);
++const hot = T.sysView({ ok: true, cpu: 95, cpu_ready: true, cpu_window_s: 2, mem: 91, up: 19000, down: 49000, net_ready: true, sampled_at: now - 20 }, now, 5);
++assert(hot.state === 'stale' && hot.cpuHot === true && hot.memHot === true, JSON.stringify(hot));
++assert(hot.net === '↓49KB/s ↑19KB/s', hot.net);
++const missing = T.sysView({ ok: false, reason: 'missing', detail: '未安装 psutil' }, now, 0);
++assert(missing.cpu === '--' && missing.state === 'missing', 'missing psutil');
++
++T.resetSeries();
++assert(T.waveLabel(2, T.seriesLength()).includes('没有工具事件流'), 'tool tab');
++assert(T.waveLabel(1, { sys: 0, human: 0, agent: 0 }).includes('示意'), 'no samples');
++T.pushSeries('sys', 0.2); T.pushSeries('sys', 0.4);
++assert(T.waveLabel(1).includes('CPU 采样'), 'sys wave');
++T.pushSeries('human', 0.1); T.pushSeries('human', 0.2);
++assert(T.waveLabel(3).includes('麦克风'), 'human wave');
++const level = T.agentLevel([{ state: 'off' }, { state: 'run' }]);
++assert(level === 0.5, level);
++for (let i = 0; i < 60; i++) T.pushSeries('agent', 1);
++assert(T.seriesValues('agent').length === 48, 'cap');
++
++const lines = T.linkLines(null);
++assert(lines.some(l => l.includes('未连接')) && lines.some(l => l.includes('不显示密钥')), lines.join('|'));
++const liveLines = T.linkLines({ voice: true, psutil: true, llm: false, amap: false, harness: false });
++assert(liveLines.some(l => l.includes('高德') && l.includes('未配置')), liveLines.join('|'));
++assert(liveLines.some(l => l.includes('未安装')), 'harness');
++assert(!liveLines.some(l => /key|token|http/i.test(l)), liveLines.join('|'));
++
++console.log('PASS');
+diff --git a/tests/test_hud_truth.py b/tests/test_hud_truth.py
+new file mode 100644
+index 0000000..5a14b53
+--- /dev/null
++++ b/tests/test_hud_truth.py
+@@ -0,0 +1,94 @@
++"""HUD truth messages: unconfigured weather must not look like a live Shanghai forecast.
++
++    python tests/test_hud_truth.py
++
++No network, no API keys, no voice models. Linux-only; it does not claim the Mac app was exercised.
++"""
++import json
++import sys
++import time
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
++
++from jarvis import hud_truth, sysmon
++
++
++def test_public_error_strips_secrets_and_urls():
++    text = hud_truth.public_error("failed https://restapi.amap.com/v3/ip?key=supersecret123&output=json token=abc")
++    assert "supersecret" not in text
++    assert "token=abc" not in text
++    assert "https://" not in text
++    bare = hud_truth.public_error("AMap rejected key=supersecret123")
++    assert "supersecret" not in bare and "key=…" in bare
++
++
++def test_unconfigured_world_is_explicit_and_not_the_sample_city():
++    msgs = hud_truth.world_messages(has_amap=False, has_key=False)
++    blob = json.dumps(msgs, ensure_ascii=False)
++    assert "上海" not in blob and "张江" not in blob and "AQI" not in blob and "18" not in blob
++    kinds = {(m["type"], m["reason"]) for m in msgs}
++    assert kinds == {("weather", "unconfigured"), ("trip", "unconfigured")}
++    assert all(m["ok"] is False for m in msgs)
++
++
++def test_weather_error_and_no_route():
++    msgs = hud_truth.world_messages(has_amap=True, has_key=True, weather=None, weather_error="timeout", has_route=False)
++    assert msgs[0]["type"] == "weather" and msgs[0]["ok"] is False and msgs[0]["reason"] == "error"
++    assert msgs[0]["detail"] == "timeout"
++    assert msgs[1]["type"] == "trip" and msgs[1]["reason"] == "none"
++
++
++def test_live_weather_keeps_source_and_does_not_invent_aqi():
++    weather = {"ok": True, "city": "上海", "now": "多云", "temp": "18", "humidity": "60",
++               "report_time": "2026-11-08 14:00:00", "days": [{"day": "多云"}]}
++    msgs = hud_truth.world_messages(has_amap=True, has_key=True, weather=weather, has_route=True)
++    assert len(msgs) == 1, "a route already on screen is not replaced with an empty trip"
++    msg = msgs[0]
++    assert msg["source"] == "amap" and msg["ok"] is True and msg["temp"] == "18"
++    assert "aqi" not in msg
++
++
++def test_link_message_has_no_secrets():
++    msg = hud_truth.link_message(voice=True, psutil=True, llm=True, llm_provider="deepseek", amap=False, harness=False)
++    assert set(msg) == {"type", "voice", "psutil", "llm", "llm_provider", "amap", "harness"}
++    assert msg["llm_provider"] == "deepseek" and msg["amap"] is False
++    leaked = hud_truth.link_message(voice=True, psutil=False, llm=True, llm_provider="https://keys.example/secret", amap=True, harness=False)
++    assert leaked["llm_provider"] == ""
++    blob = json.dumps(msg)
++    assert "key" not in blob and "token" not in blob
++
++
++def test_sysmon_marks_the_first_reading_and_a_real_second_one():
++    if sysmon.psutil is None:
++        missing = sysmon.unavailable()
++        assert missing["ok"] is False and missing["reason"] == "missing"
++        assert "估算" in missing["detail"]
++        return
++    sysmon._last.update(t=0.0, sent=0, recv=0)
++    first = sysmon.sample()
++    assert first["ok"] is True and first["source"] == "psutil"
++    assert first["cpu_ready"] is False and first["cpu"] is None
++    assert first["net_ready"] is False and first["up"] is None and first["down"] is None
++    assert first["mem_kind"] == "virtual_percent"
++    assert isinstance(first["mem"], int)
++    time.sleep(0.05)
++    second = sysmon.sample()
++    assert second["cpu_ready"] is True and isinstance(second["cpu"], int) and 0 <= second["cpu"] <= 100
++    assert second["net_ready"] is True and isinstance(second["up"], int) and isinstance(second["down"], int)
++    assert second["cpu_window_s"] is not None and second["cpu_window_s"] >= 0
++    assert "api_key" not in json.dumps(second)
++
++
++def main():
++    test_public_error_strips_secrets_and_urls()
++    test_unconfigured_world_is_explicit_and_not_the_sample_city()
++    test_weather_error_and_no_route()
++    test_live_weather_keeps_source_and_does_not_invent_aqi()
++    test_link_message_has_no_secrets()
++    test_sysmon_marks_the_first_reading_and_a_real_second_one()
++    print("PASS")
++
++
++if __name__ == "__main__":
++    main()

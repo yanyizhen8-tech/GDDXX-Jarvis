@@ -24,28 +24,17 @@ function focusPanel(id) { const el = document.getElementById(id); if (!el) retur
 let approvalBox = null;
 
 function respond(q) {
-  const { cur, next } = schedInfo();
-  if (/安排|日程|会议|今天.*(干|做)|几点/.test(q)) {
-    focusPanel('pSched');
-    const left = SCHED.filter((s, i) => i >= (cur >= 0 ? cur : next >= 0 ? next : SCHED.length)).length;
-    if (cur >= 0) return `现在是${SCHED[cur][2]}，到 ${SCHED[cur][1]} 结束。今天还剩 ${left} 项安排。`;
-    if (next >= 0) return `今天还有 ${left} 项安排。下一项是 ${SCHED[next][0]} 的${SCHED[next][2]}，内容是${SCHED[next][3]}。`;
-    return '今天的安排都结束了。要我帮你把明天的计划排一下吗？';
-  }
-  if (/天气|出行|下雨|温度|穿|路况|通勤/.test(q)) { focusPanel('pWeather'); return '上海今天多云，18 度，空气优。明天 16 到 24 度。去张江科学城现在出发大约 32 分钟，路上畅通。'; }
-  if (/大脑|任务|学习|复盘|agent/i.test(q)) { focusPanel('pAgents'); return '语音服务没连上，左边的 Agent 面板暂时没有实时数据。'; }
-  if (/汇报|总结|进度|工作|完成/.test(q)) {
-    focusPanel('pReport');
-    const rest = TASKS.filter(t => t[1] < 100).map(t => t[0].replace(/\s*\(.*\)/, '')).join('、');
-    return `今天 12 项任务完成了 ${done} 项，进度 ${Math.round(done / 12 * 100)}%。还没做完的是${rest}。`;
-  }
-  if (/你好|在吗|贾维斯|jarvis/i.test(q)) return '我在。有什么需要？';
-  return '我在。语音服务还没连上，现在只能演示日程和天气。';
+  if (/安排|日程|会议|今天.*(干|做)|几点/.test(q)) focusPanel('pSched');
+  else if (/天气|出行|下雨|温度|穿|路况|通勤/.test(q)) focusPanel('pWeather');
+  else if (/大脑|任务|学习|复盘|agent/i.test(q)) focusPanel('pAgents');
+  else if (/汇报|总结|进度|工作|完成/.test(q)) focusPanel('pReport');
+  return window.JVTruth ? JVTruth.offlineReply(q) : '语音服务没连上。我不会用示例天气或示例日程回答。';
 }
 
 let busy = false;
 let handle = function (q) {
   q = q.trim(); if (!q) return;
+  if (window.JVTruth && JVTruth.isStandby(q)) { try { dormNow(); } catch (_) {} return; }
   try { speechSynthesis.cancel(); } catch (_) {}
   busy = true;
   typeOut('you', q, 18, () => {
@@ -65,21 +54,16 @@ $('#btnMic').addEventListener('click', () => toggleListen());
 $('#btnMenu').addEventListener('click', e => { const pop = $('#menuPop'); pop.hidden = !pop.hidden; e.currentTarget.setAttribute('aria-expanded', String(!pop.hidden)); });
 document.addEventListener('click', e => { if (!e.target.closest('.menu-wrap')) { $('#menuPop').hidden = true; $('#btnMenu').setAttribute('aria-expanded', 'false'); } });
 
-let listenTimer = null, sampleIdx = 0, heard = '';
+let listenTimer = null;
 function startListen() {
   if (state === 'listening') return;
   try { speechSynthesis.cancel(); } catch (_) {}
-  clearInterval(typeTimer); setState('listening');
-  heard = SAMPLES[sampleIdx++ % SAMPLES.length];
-  sub.innerHTML = '<span class="who you">YOU</span><span style="color:var(--ink-3)">正在聆听…</span>';
-  let i = 0; clearInterval(listenTimer);
-  setTimeout(() => { listenTimer = setInterval(() => { if (state !== 'listening') return clearInterval(listenTimer); i = Math.min(heard.length, i + 1); sub.innerHTML = '<span class="who you">YOU</span>' + escapeHtml(heard.slice(0, i)) + '<span class="caret"></span>'; }, 90); }, 500);
+  clearInterval(typeTimer); clearInterval(listenTimer); setState('listening');
+  sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(window.JVTruth ? JVTruth.micOffline() : '语音服务没连上，麦克风没有在听。');
 }
 function stopListen() {
   if (state !== 'listening') return; clearInterval(listenTimer);
-  setState('thinking');
-  sub.innerHTML = '<span class="who you">YOU</span>' + escapeHtml(heard);
-  setTimeout(() => speak(respond(heard)), 1100);
+  setState('idle');
 }
 let clickListen = null;
 function toggleListen() { if (state === 'listening') { clearTimeout(clickListen); stopListen(); } else { startListen(); clearTimeout(clickListen); clickListen = setTimeout(stopListen, 3200); } }

@@ -130,6 +130,7 @@ button{font:inherit;color:inherit}
 .menu-pop button b{font-weight:400;color:var(--cyan)}
 .menu-pop button[aria-pressed="false"] b{color:var(--ink-3)}
 .stats .on{color:var(--ok)}
+.stats b.off,.stats b.stale,#net.stale{color:var(--ink-3)}
 .stats b.hot{color:rgb(var(--sk-accl))}
 .stats span{white-space:nowrap}
 @media (max-width:1380px){.stats{gap:14px}.motto{display:none}}
@@ -173,7 +174,7 @@ button{font:inherit;color:inherit}
 .agent.live .ring{border:2px solid var(--c);box-shadow:0 0 18px 2px color-mix(in srgb,var(--c) 70%,transparent),inset 0 0 14px color-mix(in srgb,var(--c) 55%,transparent)}
 .agent .ring svg{width:20px;height:20px;filter:drop-shadow(0 0 5px var(--c))}
 .agent .name{font-family:var(--f-latin);font-size:16px;letter-spacing:.2px;font-weight:400;display:block}
-.agent .desc{font-size:13px;color:var(--ink-2);display:block;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.agent .desc{font-size:13px;color:var(--ink-2);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;margin-top:2px;white-space:normal;overflow:hidden;line-height:1.35}
 .agent canvas{width:72px;height:26px}
 .agent .dot{width:9px;height:9px;border-radius:50%;background:var(--c);border:2px solid color-mix(in srgb,var(--c) 35%,rgb(var(--sk-bg)));box-shadow:0 0 8px color-mix(in srgb,var(--c) 70%,transparent)}
 .agent.run .ring{border-color:var(--cyan);box-shadow:0 0 18px rgba(var(--sk-pri),.45),inset 0 0 12px rgba(var(--sk-pri),.35)}
@@ -242,6 +243,8 @@ button{font:inherit;color:inherit}
 .qr-pop svg{display:block;width:82px;height:82px;border-radius:3px}
 .qr-pop[hidden]{display:none}
 .trip .eta b{font-family:var(--f-latin);font-weight:400;font-size:21px}
+.wx-src,.wave-note{font-size:10px;letter-spacing:.08em;color:var(--ink-3);margin-top:4px}
+.wave-note{text-align:right}
 #route{width:100%;height:96px;display:block;margin-top:6px}
 
 /* schedule */
@@ -397,5 +400,7 @@ body[data-state="listening"] .state-badge,body[data-state="thinking"] .state-bad
 #statsHolo .bar.warn i::after{background:linear-gradient(90deg,rgba(var(--sk-acc),.4),var(--amber));box-shadow:0 0 10px var(--amber)}
 #statsHolo .sh-foot{margin-top:16px;font-size:10.5px;color:var(--ink-3);letter-spacing:.5px;display:flex;justify-content:space-between}
 @media (prefers-reduced-motion:reduce){#statsHolo,#statsHolo::before,#statsHolo .sh-grid div,#statsHolo .bar i::after{transition:none;animation:none}}
-body[data-live] .demo-tag{display:none}
+.shield-pop{position:absolute;right:0;top:44px;width:280px;padding:12px 14px;border:1px solid var(--line-2);background:rgba(var(--sk-pnl),.94);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:7;font-size:12px;line-height:1.55;color:var(--ink-2)}
+.shield-pop[hidden]{display:none}
+.shield-pop div + div{margin-top:4px}
 .agent.off{opacity:.42}.agent .name small{font-family:var(--f-cn);font-size:11px;color:var(--ink-3);margin-left:8px;letter-spacing:0}

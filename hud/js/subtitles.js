@@ -75,6 +75,7 @@ function subsPlay(speed, done) {
   }, speed);
 }
 function typeOut(who, text, speed = 45, done, zh) {
+  try { delete sub.dataset.kind; } catch (_) {}
   const entry = { who, en: String(text || ''), zh: zh ? String(zh) : '', t: Date.now() };
   const last = SUBS.log[SUBS.log.length - 1];
   if (last && last.who === who && last.en === entry.en && Date.now() - last.t < 4000) SUBS.log.pop();   /* the same line sent twice */

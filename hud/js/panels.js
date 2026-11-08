@@ -35,7 +35,7 @@ function agentClick(id) {
   if (act.type === 'blocked' || act.type === 'status') {
     try { openTalk(); } catch (_) {}
     const line = (a && (a.desc0 || a.desc)) || act.text || '没有状态';
-    try { sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(line); } catch (_) {}
+    try { delete sub.dataset.kind; sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(line); } catch (_) {}
     return;
   }
   if (act.type === 'open-brain' && typeof brainOpen === 'function') return brainOpen();

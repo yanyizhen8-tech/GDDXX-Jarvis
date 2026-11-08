@@ -61,6 +61,7 @@ function startListen() {
   if (state === 'listening') return;
   try { speechSynthesis.cancel(); } catch (_) {}
   clearInterval(typeTimer); clearInterval(listenTimer); setState('listening');
+  delete sub.dataset.kind;
   sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(window.JVTruth ? JVTruth.micOffline() : '语音服务没连上，麦克风没有在听。');
 }
 function stopListen() {
@@ -73,7 +74,7 @@ $('#mic').addEventListener('click', toggleListen);
 addEventListener('keydown', e => {
   const typing = document.activeElement === input;
   if (e.code === 'Space' && !typing && !e.repeat && !(document.activeElement && /BUTTON/.test(document.activeElement.tagName))) { e.preventDefault(); clearTimeout(clickListen); startListen(); }
-  else if (e.key === 'Escape') { try { speechSynthesis.cancel(); } catch (_) {} clearInterval(typeTimer); clearInterval(listenTimer); clearTimeout(clickListen); if (approvalBox && approvalBox.isConnected) approvalBox.querySelector('.no').click(); setState('idle'); sub.innerHTML = '<span class="who">JARVIS</span>好的，已停止。'; }
+  else if (e.key === 'Escape') { try { speechSynthesis.cancel(); } catch (_) {} clearInterval(typeTimer); clearInterval(listenTimer); clearTimeout(clickListen); if (approvalBox && approvalBox.isConnected) approvalBox.querySelector('.no').click(); setState('idle'); delete sub.dataset.kind; sub.innerHTML = '<span class="who">JARVIS</span>好的，已停止。'; }
   else if ((e.key === 'k' && (e.metaKey || e.ctrlKey)) || (e.key === '/' && !typing)) { e.preventDefault(); openTalk(); input.focus(); }
 });
 addEventListener('keyup', e => { if (e.code === 'Space' && state === 'listening' && document.activeElement !== input) stopListen(); });

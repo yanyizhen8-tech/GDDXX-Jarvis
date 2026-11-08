@@ -62,6 +62,7 @@ body.demo .bar-in,body.demo .chips{opacity:0;pointer-events:none}
 #demoBack small{font-family:var(--f-latin,inherit);font-size:9.5px;letter-spacing:2px;color:rgb(var(--sk-pri))}
 #demoBack:hover{border-color:rgb(var(--sk-pri));box-shadow:0 0 14px rgba(var(--sk-pri),.25)}
 body.demo #demoBack{opacity:1;pointer-events:auto;transform:none}
+body.demo #liveCtl{top:16px}
 /* Layout: full-bleed WebGL particle core behind a three-column HUD (agents | core | world), thin top status rail, bottom command bar. Single dark look by design. */
 :root{
   --sk-pri:127,219,255;

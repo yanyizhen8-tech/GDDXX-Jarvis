@@ -22,11 +22,11 @@ function connectVoice() {
     if (m.type === 'state') {
       const s = m.state === 'listening' ? 'listening' : m.state === 'thinking' ? 'thinking' : m.state === 'speaking' ? 'speaking' : 'idle';
       setState(s);
-      if (s === 'listening' && !sub.textContent.trim()) sub.innerHTML = '<span class="who you">YOU</span><span style="color:var(--ink-3)">正在聆听…</span>';
+      if (s === 'listening' && !sub.textContent.trim()) { delete sub.dataset.kind; sub.innerHTML = '<span class="who you">YOU</span><span style="color:var(--ink-3)">正在聆听…</span>'; }
       if (s === 'idle') applyMicFace();
     }
     else if (m.type === 'screen') { if (m.mode === 'awake') { dormHold = false; dormAsked = false; wakeUI(); sleepUI(30000); } else if (state === 'speaking' || state === 'thinking') dormAsked = true; else dormNow(); }
-    else if (m.type === 'wake') { dormHold = false; wakeUI(); clearInterval(typeTimer); openTalk(); sub.innerHTML = '<span class="who you">YOU</span><span style="color:var(--ink-3)">正在聆听…</span>'; }
+    else if (m.type === 'wake') { dormHold = false; wakeUI(); clearInterval(typeTimer); openTalk(); delete sub.dataset.kind; sub.innerHTML = '<span class="who you">YOU</span><span style="color:var(--ink-3)">正在聆听…</span>'; }
     else if (m.type === 'you') typeOut('you', m.text, 12);
     else if (m.type === 'jarvis') typeOut('jarvis', m.text, 40, null, m.zh);
     else if (m.type === 'stop' || m.type === 'barge_in') clearInterval(typeTimer);
@@ -55,7 +55,7 @@ function connectVoice() {
     else if (m.type === 'rejected') { meterHeard.textContent += '（不是唤醒词）'; }
     else if (m.type === 'listen') { document.body.dataset.listen = '1'; listenShow(m.on !== false); }   /* pause switch only; not proof the microphone is open */
     else if (m.type === 'mic') { micState = m; applyMicFace(); }
-    else if (m.type === 'holo_show' && m.ok === false) { try { openTalk(); sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(m.error || '无法投影'); } catch (_) {} }
+    else if (m.type === 'holo_show' && m.ok === false) { try { openTalk(); delete sub.dataset.kind; sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(m.error || '无法投影'); } catch (_) {} }
     else if (m.type === 'agents') agentsUpdate(m);
     else if (m.type === 'link') { if (window.paintLink) paintLink(m); }
     else if (m.type === 'llm') { if (m.name) window.JV_NAME = m.name === 'sir' ? '' : m.name; if (window.ONBOARD) ONBOARD.msg(m); }
@@ -106,6 +106,10 @@ function applyMicFace() {
   ['#mic', '#btnMic'].forEach(q => { const b = document.querySelector(q); if (b) b.setAttribute('aria-label', face.listening ? '暂停聆听' : face.button); });
   meterHeard.textContent = face.detail || '';
   meterHeard.classList.toggle('warn', !!face.warn);
+  if (sub && sub.dataset.kind === 'mic' && window.JVTruth) {
+    const line = JVTruth.micSubtitle(face, true);
+    sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(line.text);
+  }
   if (input) input.placeholder = face.placeholder;
   if (state === 'idle' && stateText) stateText.textContent = face.status;
   if (!face.listening) micBar.style.width = wakeBar.style.width = '0%';
@@ -134,7 +138,8 @@ applyMicFace();
 startListen = () => {
   if (!live) return demoStart();
   openTalk(); clearInterval(typeTimer);
-  const face = window._micFace || (window.JVTruth && JVTruth.micFace({ socket: true, paused: !listening, mic: micState }));
+  const face = window._micFace || (window.JVTruth && JVTruth.micFace({ socket: true, paused: listenKnown && !listening, mic: micState }));
+  sub.dataset.kind = 'mic';
   sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(face && face.hold ? face.hold : '麦克风状态未知');
 };
 ['#mic', '#btnMic'].forEach(q => { const b = document.querySelector(q); if (b) b.addEventListener('click', e => { if (live) { e.stopImmediatePropagation(); listenToggle(); } }, true); });

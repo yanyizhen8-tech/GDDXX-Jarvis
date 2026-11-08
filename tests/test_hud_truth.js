@@ -159,4 +159,24 @@ const holoSrc = fs.readFileSync(path.join(__dirname, '..', 'hud', 'js', 'holo-li
 assert(holoSrc.includes('JVTruth.holoClick'), 'library uses the local projector');
 assert(!/type:\s*'text'/.test(holoSrc), 'library cards do not send chat');
 
+const silentMic = { ok: true, pending: false, silent: true, text: '没有输入电平' };
+const pausedSilent = T.micFace({ socket: true, paused: true, mic: silentMic });
+assert(pausedSilent.listening === false && /暂停/.test(pausedSilent.hold) && !/聆听中/.test(pausedSilent.button + pausedSilent.status + pausedSilent.hold), JSON.stringify(pausedSilent));
+const resumeSilent = T.micFace({ socket: true, paused: false, mic: silentMic });
+assert(resumeSilent.listening === false && resumeSilent.button === '无电平' && !/聆听中/.test(resumeSilent.button + resumeSilent.status + resumeSilent.hold), JSON.stringify(resumeSilent));
+assert(T.micSubtitle(pausedSilent, false) === null, 'conversation subtitle is left alone');
+assert(/暂停/.test(T.micSubtitle(pausedSilent, true).text) && T.micSubtitle(pausedSilent, true).listening === false, 'owned line follows pause');
+assert(T.micSubtitle(resumeSilent, true).listening === false && !/聆听中/.test(T.micSubtitle(resumeSilent, true).text), 'resume without level is not listening');
+
+const liveRule = (css.match(/body\.demo #liveCtl\{[^}]+\}/) || [])[0];
+const legendRule = (css.match(/\.holo-legend\{[^}]+\}/) || [])[0];
+const liveTop = /top:\s*(\d+)px/.exec(liveRule || '');
+const legendTop = /top:\s*(\d+)px/.exec(legendRule || '');
+assert(liveTop && legendTop, liveRule + ' | ' + legendRule);
+const bands = T.demoBands(Number(liveTop[1]), Number(legendTop[1]));
+assert(bands.overlap === false, JSON.stringify(bands));
+const backTop = /#demoBack\{[^}]*top:\s*(\d+)px/.exec(css);
+const handTop = /#handChip\{[^}]*top:\s*(\d+)px/.exec(handSrc);
+assert(backTop && handTop && T.demoBands(Number(backTop[1]), Number(handTop[1])).overlap === false, 'back and gesture stay apart');
+
 console.log('PASS');

@@ -158,6 +158,17 @@
       hold: '麦克风已打开。直接说 “Hey Jarvis”。如果没有反应，检查系统是否允许 Jarvis 使用麦克风。', listening: true };
   }
   /* Gesture camera is opt-in. A hologram on screen is not permission to open the camera. */
+  /* Refresh the center line only while it is a microphone status we wrote. Conversation text stays. */
+  function micSubtitle(face, owned) {
+    if (!owned) return null;
+    const text = face && face.hold ? face.hold : '';
+    return { text: text, listening: !!(face && face.listening) };
+  }
+  function demoBands(liveTop, legendTop) {
+    const live = { top: liveTop, height: 30 }, legend = { top: legendTop, height: 32 };
+    const overlap = live.top < legend.top + legend.height && legend.top < live.top + live.height;
+    return { live: live, legend: legend, overlap: overlap };
+  }
   function cameraWant(s) {
     s = s || {};
     return !!(s.enabled && s.demo && (s.machine || s.earth));
@@ -213,6 +224,6 @@
   }
   root.JVTruth = {
     rate, clock, weatherView, tripView, sysView, pushSeries, seriesValues, seriesLength, resetSeries,
-    agentLevel, waveLabel, agentAction, isStandby, textDispatch, offlineReply, micOffline, micFace, holoClick, cameraWant, linkLines
+    agentLevel, waveLabel, agentAction, isStandby, textDispatch, offlineReply, micOffline, micFace, micSubtitle, demoBands, holoClick, cameraWant, linkLines
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -54,6 +54,31 @@ def world_messages(*, has_amap, has_key, weather=None, weather_error="", has_rou
     return msgs
 
 
+def mic_message(*, ready, silent=False, detail=""):
+    """What the HUD may say about the microphone. `ready is None` means the socket is up and the device is not confirmed.
+
+    A connected voice process is not a microphone permission, an open stream, or a successful wake."""
+    if ready is None:
+        return {"type": "mic", "ok": False, "pending": True, "silent": False,
+                "text": "正在打开麦克风。连上语音服务不等于麦克风可用。"}
+    if not ready:
+        text = detail or "没有找到可用的麦克风或扬声器。接上设备后会自动重试；也可以先用文字输入。"
+        return {"type": "mic", "ok": False, "pending": False, "silent": False, "text": public_error(text)}
+    if silent:
+        return {"type": "mic", "ok": True, "pending": False, "silent": True,
+                "text": "麦克风设备已打开，但没有输入电平。请检查系统麦克风权限和当前输入设备。唤醒词需要有声音才会触发。"}
+    return {"type": "mic", "ok": True, "pending": False, "silent": False, "text": ""}
+
+
+def holo_show_event(result, stem):
+    """Library card result. Failure is explicit. Success is only the real show() result, not a preview."""
+    name = str(stem or "")[:80]
+    if not result or not result.get("ok"):
+        err = (result or {}).get("error") or "无法投影这个拆解"
+        return {"type": "holo_show", "ok": False, "file": name, "error": public_error(err)}
+    return {"type": "holo_show", "ok": True, "file": name, "title": str(result.get("machine") or "")[:80]}
+
+
 def link_message(*, voice, psutil, llm, llm_provider="", amap, harness):
     """Booleans only. Provider is a short name, never a URL or a key."""
     name = str(llm_provider or "")

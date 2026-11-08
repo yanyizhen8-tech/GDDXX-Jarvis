@@ -32,9 +32,9 @@ function agentsUpdate(m) {
 function agentClick(id) {
   const a = AGENTS.find(x => x.id === id);
   const act = window.JVTruth ? JVTruth.agentAction(id, a && a.state) : { type: 'ask', text: '' };
-  if (act.type === 'blocked') {
+  if (act.type === 'blocked' || act.type === 'status') {
     try { openTalk(); } catch (_) {}
-    const line = (a && (a.desc0 || a.desc)) || act.text;
+    const line = (a && (a.desc0 || a.desc)) || act.text || '没有状态';
     try { sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(line); } catch (_) {}
     return;
   }

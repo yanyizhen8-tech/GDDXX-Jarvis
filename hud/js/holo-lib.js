@@ -87,7 +87,11 @@
     const c = e.target.closest('.hl-chips button');
     if (c) { filt = c.dataset.f; box.querySelectorAll('.hl-chips button').forEach(b => b.setAttribute('aria-pressed', String(b === c))); return draw(); }
     const card = e.target.closest('.hl-card');
-    if (card) { liveSend({ type: 'holo_show', file: card.dataset.file }); close(); }
+    if (card) {
+      const act = window.JVTruth ? JVTruth.holoClick(card.dataset.file, !!(live && live.readyState === 1)) : { send: null, close: false, note: '无法投影' };
+      if (!act.send || !liveSend(act.send)) { grid.innerHTML = '<div class="hl-empty">' + esc(act.note || '语音服务没有连接，不能投影。') + '</div>'; return; }
+      close();
+    }
   });
   q.addEventListener('input', draw);
   grid.addEventListener('keydown', e => { const card = e.target.closest('.hl-card'); if (card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); card.click(); } });

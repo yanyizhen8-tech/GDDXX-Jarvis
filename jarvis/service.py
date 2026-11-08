@@ -105,7 +105,8 @@ class Service:
         self.dec_mic, self.dec_ref = Decimator(), Decimator()
         self.speaker = make_speaker()
         self.clients = set()
-        self.mic_msg = None                    # set while no audio device can be opened
+        self.mic_state = hud_truth.mic_message(ready=None)   # pending until a stream opens or fails
+        self.mic_msg = None                    # last failure, so a reconnect can be told; cleared once audio opens
         self.muted = False                     # the HUD's 暂停聆听 switch: the microphone is ignored until it is turned back on
         self.mute_reset = False                # the audio thread drops any half-heard sentence on the next block
         from . import gesture                  # hand tracking for holograms
@@ -529,9 +530,9 @@ class Service:
             except Exception as e:
                 if not warned:
                     log(f"audio device unavailable: {type(e).__name__}: {e}")
-                    self.mic_msg = {"type": "mic", "ok": False,
-                                    "text": "没有找到可用的麦克风或扬声器。接上设备后会自动重试；也可以先用文字输入。"}
-                    self.broadcast(self.mic_msg)
+                    self.mic_state = hud_truth.mic_message(ready=False)
+                    self.mic_msg = self.mic_state
+                    self.broadcast(self.mic_state)
                     warned = True
                 time.sleep(5)
                 try:
@@ -543,10 +544,10 @@ class Service:
     def audio_run(self):
         last = time.time()
         with _sd().Stream(samplerate=DEV_SR, blocksize=HOP, channels=(1, 1), dtype="float32", callback=self.duplex_cb):
-            if self.mic_msg:
-                log("audio device ready")
-                self.mic_msg = None
-                self.broadcast({"type": "mic", "ok": True})
+            log("audio device ready")
+            self.mic_msg = None
+            self.mic_state = hud_truth.mic_message(ready=True, silent=False)
+            self.broadcast(self.mic_state)
             while True:
                 x = self.mic_q.get()
                 if self.mute_reset:                   # paused or resumed: forget what was half heard
@@ -575,10 +576,14 @@ class Service:
                     # one line every 10 s: peak mic level before/after echo cancel and best wake score
                     st = self.stats
                     log(f"mic peak {st['raw']:.3f} -> {st['clean']:.3f} | wake best {st['wake']:.2f} | {st['status'] or 'ok'}")
-                    if st["raw"] < 1e-4:
+                    silent = st["raw"] < 1e-4
+                    if silent:
                         log("microphone is silent: check the microphone permission for Jarvis "
                             + ("(System Settings > Privacy & Security > Microphone)" if paths.IS_MAC else "(Settings > Privacy > Microphone)")
                             + " and the input device")
+                    if silent != bool(self.mic_state.get("silent")):
+                        self.mic_state = hud_truth.mic_message(ready=True, silent=silent)
+                        self.broadcast(self.mic_state)
                     self.stats = {"raw": 0.0, "clean": 0.0, "wake": 0.0, "status": ""}
                     last = time.time()
 
@@ -622,8 +627,7 @@ class Service:
                 await ws.send(json.dumps(onboard.status(), ensure_ascii=False))   # no model yet: the window opens 「接入大脑」
                 from . import agents
                 await ws.send(json.dumps(agents.snapshot(), ensure_ascii=False))
-                if self.mic_msg:
-                    await ws.send(json.dumps(self.mic_msg, ensure_ascii=False))
+                await ws.send(json.dumps(self.mic_state, ensure_ascii=False))
                 await ws.send(json.dumps({"type": "listen", "on": not self.muted}))
                 await ws.send(json.dumps(self.link_msg(), ensure_ascii=False))
             except Exception:
@@ -659,11 +663,18 @@ class Service:
                         from . import hologram
                         items = await asyncio.get_running_loop().run_in_executor(None, hologram.catalog)
                         await ws.send(json.dumps({"type": "holo_list", "items": items}, ensure_ascii=False))
-                    elif msg.get("type") == "holo_show":     # a library card was clicked
+                    elif msg.get("type") == "holo_show":     # a library card was clicked; not a language-model turn
                         from . import hologram
                         if hologram.UI is None:
                             hologram.UI = self.broadcast
-                        threading.Thread(target=hologram.show_file, args=(str(msg.get("file", "")),), daemon=True).start()
+                        stem = str(msg.get("file", ""))[:80]
+                        def _show(stem=stem):
+                            try:
+                                result = hologram.show_file(stem)
+                            except Exception as e:
+                                result = {"ok": False, "error": hud_truth.public_error(e)}
+                            self.broadcast(hud_truth.holo_show_event(result, stem))
+                        threading.Thread(target=_show, daemon=True).start()
                     elif msg.get("type") == "interrupt":
                         self.on_event("stop", {})
             finally:

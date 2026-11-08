@@ -119,10 +119,49 @@
   function agentAction(id, state) {
     if (id === 'brain') return { type: 'open-brain' };
     if (id === 'learn') return { type: 'open-learn' };
+    if (id === 'jobs' || id === 'review') return { type: 'status' };
     if (state === 'off') return { type: 'blocked', text: '这项能力当前不可用' };
-    if (id === 'jobs') return { type: 'ask', text: '后台任务进行得怎么样了？' };
-    if (id === 'review') return { type: 'ask', text: '昨天的复盘有什么建议？' };
     return { type: 'noop', text: '' };
+  }
+  /* Socket, pause switch, and device result are separate. "聆听中" requires an open stream that is not silent. */
+  function micFace(s) {
+    s = s || {};
+    const mic = s.mic;
+    if (!s.socket) {
+      return { button: '未连接', title: '语音服务未连接，麦克风状态未知', status: '语音服务未连接',
+        detail: '', warn: false, placeholder: '语音服务未连接，可以打字', hold: micOffline(), listening: false };
+    }
+    if (!mic || mic.pending) {
+      return { button: '确认中', title: '语音服务已连接。麦克风还没有打开成功或失败的结果。',
+        status: '语音服务已连接 · 麦克风尚未确认', detail: '还不能确定麦克风权限、输入设备或唤醒。', warn: false,
+        placeholder: '麦克风尚未确认，可以打字', hold: '语音服务已连接，但麦克风还没确认打开。我不能说我正在听。', listening: false };
+    }
+    if (!mic.ok) {
+      const text = mic.text || '没有可用的麦克风或扬声器';
+      return { button: '无麦克风', title: text, status: '语音服务已连接 · 麦克风不可用', detail: text, warn: true,
+        placeholder: '麦克风不可用，可以打字', hold: text, listening: false };
+    }
+    if (s.paused) {
+      return { button: '已暂停聆听', title: '麦克风设备开着，唤醒和识别已暂停', status: '已暂停聆听 · 可以打字',
+        detail: '已暂停聆听，再按一次恢复', warn: false, placeholder: '已暂停聆听，可以打字',
+        hold: '聆听已暂停。恢复后才会听唤醒词。', listening: false };
+    }
+    if (mic.silent) {
+      const text = mic.text || '麦克风设备已打开，但没有输入电平。';
+      return { button: '无电平', title: text, status: '设备已打开 · 没有输入电平', detail: text, warn: true,
+        placeholder: '麦克风没有电平，可以打字',
+        hold: '设备已打开，但没有输入电平，唤醒词不会被听到。请检查系统麦克风权限和输入设备。', listening: false };
+    }
+    return { button: '聆听中', title: '麦克风设备已打开，暂停开关是开的。这一行不能代替一次说出 Hey Jarvis 的测试。',
+      status: '聆听中 · 说 "Hey Jarvis"', detail: '', warn: false,
+      placeholder: '说 “Hey Jarvis”，或在这里打字',
+      hold: '麦克风已打开。直接说 “Hey Jarvis”。如果没有反应，检查系统是否允许 Jarvis 使用麦克风。', listening: true };
+  }
+  function holoClick(file, canSend) {
+    const name = String(file || '');
+    if (!name) return { send: null, close: false, note: '没有可投影的文件' };
+    if (!canSend) return { send: null, close: false, note: '语音服务没有连接，不能投影。' };
+    return { send: { type: 'holo_show', file: name }, close: true, note: '' };
   }
   function isStandby(q) {
     const s = String(q || '').trim();
@@ -169,6 +208,6 @@
   }
   root.JVTruth = {
     rate, clock, weatherView, tripView, sysView, pushSeries, seriesValues, seriesLength, resetSeries,
-    agentLevel, waveLabel, agentAction, isStandby, textDispatch, offlineReply, micOffline, linkLines
+    agentLevel, waveLabel, agentAction, isStandby, textDispatch, offlineReply, micOffline, micFace, holoClick, linkLines
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

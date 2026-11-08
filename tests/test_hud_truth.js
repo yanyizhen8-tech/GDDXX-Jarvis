@@ -27,12 +27,14 @@ assert(T.isStandby('退出待机') === false, 'exit');
 assert(T.isStandby('明天天气怎么样？') === false, 'weather');
 
 const blocked = T.agentAction('jobs', 'off');
-assert(blocked.type === 'blocked', 'off jobs must not ask the brain');
+assert(blocked.type === 'status', 'off jobs shows the local reason and does not ask the model');
 assert(T.agentAction('brain', 'off').type === 'open-brain', 'brain still opens so the window can say it is missing');
-assert(T.agentAction('review', 'off').type === 'blocked', 'off review must not ask the model');
+assert(T.agentAction('review', 'off').type === 'status', 'off review shows the local reason');
 assert(T.agentAction('learn', 'idle').type === 'open-learn', 'learn');
-assert(T.agentAction('review', 'idle').type === 'ask', 'review');
-assert(T.agentAction('jobs', 'idle').text.includes('后台任务'), 'jobs ask');
+assert(T.agentAction('review', 'idle').type === 'status', 'review shows the local line');
+assert(T.agentAction('jobs', 'idle').type === 'status', 'jobs does not ask the model');
+assert(T.agentAction('jobs', 'run').type === 'status', 'running job stays local');
+assert(T.textDispatch('拆开一台发动机给我看看').send.type === 'text', 'engine chip stays a normal chat line');
 
 const uncfg = T.weatherView({ type: 'weather', ok: false, reason: 'unconfigured', detail: '未配置高德' });
 assert(uncfg.state === 'unconfigured' && uncfg.temp === '—' && uncfg.aqi == null, 'wx unconfigured');
@@ -102,6 +104,7 @@ const liveSrc = fs.readFileSync(path.join(__dirname, '..', 'hud', 'js', 'live.js
 const talkSrc = fs.readFileSync(path.join(__dirname, '..', 'hud', 'js', 'talk.js'), 'utf8');
 const handleAt = liveSrc.indexOf('handle = q =>');
 const handleFn = liveSrc.slice(handleAt, liveSrc.indexOf('addEventListener', handleAt));
+assert(!liveSrc.includes('我一直在听'), 'connected hold-space must not claim it is already hearing');
 assert(handleFn.indexOf("d.local === 'dorm'") !== -1 && handleFn.indexOf("d.local === 'dorm'") < handleFn.indexOf('liveSend'), handleFn);
 assert(!/type:\s*'text'/.test(handleFn), 'live handle must not build its own chat payload');
 assert(liveSrc.includes('document.body.appendChild(shieldPop)'), 'status card is outside the header grid');
@@ -119,5 +122,30 @@ assert(!/rgba\(var\(--sk-pnl\)/.test(rule), 'no variable alpha fill');
 assert(!css.includes('.shield-pop{position:absolute'), 'old transparent popover rule is gone');
 const row = (css.match(/#shieldPop div\{[^}]+\}/) || [])[0] || '';
 assert(/padding:\s*7px 0/.test(row) && /border-top:/.test(row), row);
+
+const readyMic = { ok: true, pending: false, silent: false, text: '' };
+assert(T.micFace({ socket: true, paused: false, mic: null }).listening === false, 'socket alone is not listening');
+assert(!/聆听中/.test(T.micFace({ socket: true, paused: false, mic: null }).button), 'pending has no 聆听中');
+assert(/尚未确认/.test(T.micFace({ socket: true, paused: false, mic: { pending: true, ok: false } }).status), 'pending copy');
+const down = T.micFace({ socket: true, paused: false, mic: { ok: false, pending: false, text: '没有找到可用的麦克风或扬声器' } });
+assert(down.listening === false && down.warn && /麦克风不可用/.test(down.status), JSON.stringify(down));
+const silent = T.micFace({ socket: true, paused: false, mic: { ok: true, silent: true, text: '没有输入电平' } });
+assert(silent.listening === false && /电平/.test(silent.hold) && !/一直在听/.test(silent.hold), silent.hold);
+const paused = T.micFace({ socket: true, paused: true, mic: readyMic });
+assert(/暂停/.test(paused.button) && paused.listening === false, paused.button);
+const hearing = T.micFace({ socket: true, paused: false, mic: readyMic });
+assert(hearing.listening === true && hearing.button === '聆听中' && /麦克风已打开/.test(hearing.hold), hearing.hold);
+assert(!/一直在听/.test(hearing.hold), 'open device is not a completed wake test');
+assert(/未连接/.test(T.micFace({ socket: false, paused: false, mic: readyMic }).button), 'disconnect wins');
+
+const card = T.holoClick('raptor-engine', true);
+assert(card.send.type === 'holo_show' && card.send.file === 'raptor-engine' && card.close === true, JSON.stringify(card));
+const offlineCard = T.holoClick('raptor-engine', false);
+assert(offlineCard.send === null && offlineCard.close === false && /不能投影/.test(offlineCard.note), offlineCard.note);
+assert(T.holoClick('', true).send === null, 'empty file');
+
+const holoSrc = fs.readFileSync(path.join(__dirname, '..', 'hud', 'js', 'holo-lib.js'), 'utf8');
+assert(holoSrc.includes('JVTruth.holoClick'), 'library uses the local projector');
+assert(!/type:\s*'text'/.test(holoSrc), 'library cards do not send chat');
 
 console.log('PASS');

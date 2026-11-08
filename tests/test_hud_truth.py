@@ -49,6 +49,30 @@ def test_live_weather_keeps_source_and_does_not_invent_aqi():
     assert "aqi" not in msg
 
 
+def test_mic_message_separates_socket_from_device():
+    pending = hud_truth.mic_message(ready=None)
+    assert pending["pending"] is True and pending["ok"] is False
+    assert "不等于" in pending["text"]
+    missing = hud_truth.mic_message(ready=False)
+    assert missing["ok"] is False and missing["pending"] is False and "麦克风" in missing["text"]
+    silent = hud_truth.mic_message(ready=True, silent=True)
+    assert silent["ok"] is True and silent["silent"] is True and "电平" in silent["text"]
+    ready = hud_truth.mic_message(ready=True, silent=False)
+    assert ready["ok"] is True and ready["silent"] is False and ready["text"] == ""
+    leaked = hud_truth.mic_message(ready=False, detail="open failed key=supersecret123")
+    assert "supersecret" not in leaked["text"]
+
+
+def test_holo_show_event_reports_failure_and_real_success():
+    bad = hud_truth.holo_show_event({"ok": False, "error": "no hologram model for that machine is stored yet"}, "../raptor")
+    assert bad["ok"] is False and bad["type"] == "holo_show" and "no hologram" in bad["error"]
+    assert bad["file"] == "../raptor"[:80]
+    none = hud_truth.holo_show_event(None, "missing")
+    assert none["ok"] is False and none["error"]
+    good = hud_truth.holo_show_event({"ok": True, "machine": "Raptor"}, "raptor-engine")
+    assert good == {"type": "holo_show", "ok": True, "file": "raptor-engine", "title": "Raptor"}
+
+
 def test_link_message_has_no_secrets():
     msg = hud_truth.link_message(voice=True, psutil=True, llm=True, llm_provider="deepseek", amap=False, harness=False)
     assert set(msg) == {"type", "voice", "psutil", "llm", "llm_provider", "amap", "harness"}
@@ -85,6 +109,8 @@ def main():
     test_unconfigured_world_is_explicit_and_not_the_sample_city()
     test_weather_error_and_no_route()
     test_live_weather_keeps_source_and_does_not_invent_aqi()
+    test_mic_message_separates_socket_from_device()
+    test_holo_show_event_reports_failure_and_real_success()
     test_link_message_has_no_secrets()
     test_sysmon_marks_the_first_reading_and_a_real_second_one()
     print("PASS")

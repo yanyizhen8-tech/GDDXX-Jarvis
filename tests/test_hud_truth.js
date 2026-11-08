@@ -179,4 +179,15 @@ const backTop = /#demoBack\{[^}]*top:\s*(\d+)px/.exec(css);
 const handTop = /#handChip\{[^}]*top:\s*(\d+)px/.exec(handSrc);
 assert(backTop && handTop && T.demoBands(Number(backTop[1]), Number(handTop[1])).overlap === false, 'back and gesture stay apart');
 
+const band = css.split('@media (max-width:1180px)')[1].split('@media')[0];
+assert(band.includes('overflow-y:auto'), 'min window column can scroll to the report');
+assert(band.includes('.agent canvas{display:none}'), 'sparkline yields its column to the status text');
+assert(band.includes('.agent .name{font-size:14px;white-space:nowrap'), 'agent name stays one line');
+assert(!band.includes('.stats{display:none}'), 'CPU MEM NET stay visible at the app minimum');
+assert(band.includes('#meterHeard,#meterHeard.warn{white-space:nowrap'), 'level warning does not wrap into a tiny block');
+assert(/body\.demo #liveCtl\{top:16px\}/.test(css), '3D control offset stays');
+const win = fs.readFileSync(path.join(__dirname, '..', 'app', 'window.py'), 'utf8');
+assert(/min_size=\(1100,\s*700\)/.test(win), 'minimum window is unchanged');
+assert(/width=1440,\s*height=900/.test(win), 'default window is unchanged');
+
 console.log('PASS');

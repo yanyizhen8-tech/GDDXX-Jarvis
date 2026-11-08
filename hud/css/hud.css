@@ -354,7 +354,8 @@ body[data-state="listening"] .state-badge,body[data-state="thinking"] .state-bad
   #route{height:64px}
   .subtitle{height:64px}
   .timeline{height:28px;margin-bottom:16px}
-  .chips{flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;max-width:100%}
+  .talk-ui{min-width:0;max-width:100%}
+  .chips{flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;width:100%;min-width:0;max-width:100%;box-sizing:border-box}
   .chip{flex:none}
   #voiceMeter{top:14px;max-width:36vw;font-size:11px}
   #meterHeard,#meterHeard.warn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(240px,28vw);display:inline-block;vertical-align:middle}

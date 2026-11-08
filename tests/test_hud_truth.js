@@ -187,6 +187,7 @@ assert(!band.includes('.stats{display:none}'), 'CPU MEM NET stay visible at the 
 assert(band.includes('#meterHeard,#meterHeard.warn{white-space:nowrap'), 'level warning does not wrap into a tiny block');
 assert(/body\.demo #liveCtl\{top:16px\}/.test(css), '3D control offset stays');
 const win = fs.readFileSync(path.join(__dirname, '..', 'app', 'window.py'), 'utf8');
+assert(band.includes('.chips{flex-wrap:nowrap') && band.includes('min-width:0'), 'suggestion row scrolls inside the center column');
 assert(/min_size=\(1100,\s*700\)/.test(win), 'minimum window is unchanged');
 assert(/width=1440,\s*height=900/.test(win), 'default window is unchanged');
 

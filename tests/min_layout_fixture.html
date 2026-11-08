@@ -35,7 +35,7 @@
   </div>
   <footer class="bottom">
     <div class="left-foot"><div class="sig">让复杂的生活，变得简单一点。</div></div>
-    <div class="command"><div class="talk-ui" style="position:static;opacity:1;pointer-events:auto;transform:none"><div class="subtitle" id="subtitle">设备已打开，但没有输入电平</div><div class="chips"><button class="chip" type="button">今天有什么安排？</button><button class="chip" type="button">进入待机</button></div><form class="bar-in"><input id="cmd" value=""><span class="kbd">HOLD SPACE</span><button class="mic" type="button">麦</button></form></div></div>
+    <div class="command"><div class="talk-ui" style="position:static;opacity:1;pointer-events:auto;transform:none"><div class="subtitle" id="subtitle">设备已打开，但没有输入电平</div><div class="chips" id="chips"><button class="chip" type="button">今天有什么安排？</button><button class="chip" type="button">明天天气怎么样？</button><button class="chip" type="button">拆开一台发动机给我看看</button><button class="chip" type="button">进入待机</button></div><form class="bar-in"><input id="cmd" value=""><span class="kbd">HOLD SPACE</span><button class="mic" type="button">麦</button></form></div></div>
     <div class="meters-wrap"><div class="meters"><div class="meter">DATA<canvas></canvas></div></div></div>
   </footer>
 </div>
@@ -58,7 +58,11 @@ document.getElementById('measure').textContent = JSON.stringify({
   canvas: getComputedStyle(canvas).display,
   colScroll: col.scrollHeight > col.clientHeight + 2,
   reportPast: Math.round(report.getBoundingClientRect().bottom - col.getBoundingClientRect().bottom),
-  inputOnScreen: input.getBoundingClientRect().bottom <= innerHeight + 1
+  inputOnScreen: input.getBoundingClientRect().bottom <= innerHeight + 1,
+  chips: box(document.getElementById('chips')),
+  command: box(document.querySelector('.command')),
+  chipsInside: document.getElementById('chips').getBoundingClientRect().right <= document.querySelector('.command').getBoundingClientRect().right + 1,
+  lastChipReachable: document.querySelector('#chips .chip:last-child').getBoundingClientRect().right <= document.getElementById('chips').getBoundingClientRect().right + document.getElementById('chips').scrollWidth - document.getElementById('chips').clientWidth + 2
 });
 </script>
 </body></html>

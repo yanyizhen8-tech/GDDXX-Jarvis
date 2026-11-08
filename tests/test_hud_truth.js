@@ -79,4 +79,45 @@ assert(liveLines.some(l => l.includes('高德') && l.includes('未配置')), liv
 assert(liveLines.some(l => l.includes('未安装')), 'harness');
 assert(!liveLines.some(l => /key|token|http/i.test(l)), liveLines.join('|'));
 
+/* Connected standby is local only. A fake sender records every payload the dispatcher would hand it. */
+function connectedHandle(q, liveSend) {
+  const d = T.textDispatch(q);
+  if (d.local === 'dorm') return 'dorm';
+  if (!d.send) return 'drop';
+  liveSend(d.send);
+  return 'sent';
+}
+let sent = [];
+const liveSend = (obj) => { sent.push(obj); };
+assert(connectedHandle('进入待机', liveSend) === 'dorm' && sent.length === 0, 'chip must not send while connected');
+assert(connectedHandle('进入待机模式', liveSend) === 'dorm' && sent.length === 0, 'standby phrase');
+assert(connectedHandle('standby', liveSend) === 'dorm' && sent.length === 0, 'english standby');
+assert(connectedHandle('明天天气怎么样？', liveSend) === 'sent' && sent.length === 1, 'other chips still send');
+assert(sent[0].type === 'text' && sent[0].text === '明天天气怎么样？', JSON.stringify(sent));
+sent = [];
+assert(connectedHandle('不要进入待机', liveSend) === 'sent' && sent.length === 1, 'negated standby is still a chat line');
+assert(T.textDispatch('进入待机').send === null, 'send field stays null');
+
+const liveSrc = fs.readFileSync(path.join(__dirname, '..', 'hud', 'js', 'live.js'), 'utf8');
+const talkSrc = fs.readFileSync(path.join(__dirname, '..', 'hud', 'js', 'talk.js'), 'utf8');
+const handleAt = liveSrc.indexOf('handle = q =>');
+const handleFn = liveSrc.slice(handleAt, liveSrc.indexOf('addEventListener', handleAt));
+assert(handleFn.indexOf("d.local === 'dorm'") !== -1 && handleFn.indexOf("d.local === 'dorm'") < handleFn.indexOf('liveSend'), handleFn);
+assert(!/type:\s*'text'/.test(handleFn), 'live handle must not build its own chat payload');
+assert(liveSrc.includes('document.body.appendChild(shieldPop)'), 'status card is outside the header grid');
+assert(talkSrc.includes('JVTruth.textDispatch'), 'offline path uses the same dispatcher');
+
+const css = fs.readFileSync(path.join(__dirname, '..', 'hud', 'css', 'hud.css'), 'utf8');
+const rule = (css.match(/#shieldPop\{[^}]+\}/) || [])[0] || '';
+assert(rule, 'missing #shieldPop rule');
+assert(/position:\s*fixed/.test(rule), rule);
+const z = /z-index:\s*(\d+)/.exec(rule);
+assert(z && Number(z[1]) >= 30, rule);
+assert(/background-color:\s*#061018/.test(rule), rule);
+assert(!/backdrop-filter/.test(rule), 'no translucent backdrop');
+assert(!/rgba\(var\(--sk-pnl\)/.test(rule), 'no variable alpha fill');
+assert(!css.includes('.shield-pop{position:absolute'), 'old transparent popover rule is gone');
+const row = (css.match(/#shieldPop div\{[^}]+\}/) || [])[0] || '';
+assert(/padding:\s*7px 0/.test(row) && /border-top:/.test(row), row);
+
 console.log('PASS');

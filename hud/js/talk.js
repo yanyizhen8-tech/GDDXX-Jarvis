@@ -33,8 +33,10 @@ function respond(q) {
 
 let busy = false;
 let handle = function (q) {
-  q = q.trim(); if (!q) return;
-  if (window.JVTruth && JVTruth.isStandby(q)) { try { dormNow(); } catch (_) {} return; }
+  const d = window.JVTruth ? JVTruth.textDispatch(q) : { send: String(q || '').trim() ? { type: 'text', text: String(q).trim() } : null, local: null };
+  if (d.local === 'dorm') { try { dormNow(); } catch (_) {} return; }
+  if (!d.send) return;
+  q = d.send.text;
   try { speechSynthesis.cancel(); } catch (_) {}
   busy = true;
   typeOut('you', q, 18, () => {

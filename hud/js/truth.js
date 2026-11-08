@@ -129,6 +129,14 @@
     if (!s || /不要|别|取消|退出待机|醒来|awake/i.test(s)) return false;
     return /进入待机|^待机$|待机模式|^standby$|go to standby/i.test(s);
   }
+  /* Explicit standby from the chip or the text box. Local panels only: send stays null
+     so a connected window does not hand the phrase to the language model. */
+  function textDispatch(q) {
+    const text = String(q || '').trim();
+    if (!text) return { send: null, local: null };
+    if (isStandby(text)) return { send: null, local: 'dorm' };
+    return { send: { type: 'text', text: text }, local: null };
+  }
   function offlineReply(q) {
     const s = String(q || '');
     if (/安排|日程|会议|今天.*(干|做)|几点/.test(s))
@@ -161,6 +169,6 @@
   }
   root.JVTruth = {
     rate, clock, weatherView, tripView, sysView, pushSeries, seriesValues, seriesLength, resetSeries,
-    agentLevel, waveLabel, agentAction, isStandby, offlineReply, micOffline, linkLines
+    agentLevel, waveLabel, agentAction, isStandby, textDispatch, offlineReply, micOffline, linkLines
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

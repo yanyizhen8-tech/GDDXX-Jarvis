@@ -78,13 +78,11 @@ function liveSend(obj) { if (live && live.readyState === 1) { live.send(JSON.str
 window.liveSend = liveSend;
 const demoHandle = handle;
 handle = q => {
-  q = q.trim(); if (!q) return;
-  if (window.JVTruth && JVTruth.isStandby(q)) {
-    if (liveSend({ type: 'text', text: q })) { openTalk(); typeOut('you', q, 12); }
-    try { dormNow(); } catch (_) {}
-    return;
-  }
-  if (liveSend({ type: 'text', text: q })) { openTalk(); typeOut('you', q, 12); } else demoHandle(q);
+  const d = window.JVTruth ? JVTruth.textDispatch(q) : { send: null, local: null };
+  if (d.local === 'dorm') { try { dormNow(); } catch (_) {} return; }
+  if (!d.send) return;
+  if (liveSend(d.send)) { openTalk(); typeOut('you', d.send.text, 12); }
+  else demoHandle(d.send.text);
 };
 addEventListener('keydown', e => { if (e.key === 'Escape') liveSend({ type: 'interrupt' }); }, true);
 const demoStart = startListen, demoStop = stopListen;
@@ -128,20 +126,18 @@ startListen = () => { if (!live) return demoStart(); openTalk(); clearInterval(t
 ['#mic', '#btnMic'].forEach(q => { const b = document.querySelector(q); if (b) b.addEventListener('click', e => { if (live) { e.stopImmediatePropagation(); listenToggle(); } }, true); });
 stopListen = () => { if (!live) demoStop(); };
 const shieldPop = document.createElement('div');
-shieldPop.id = 'shieldPop'; shieldPop.className = 'shield-pop'; shieldPop.hidden = true;
+shieldPop.id = 'shieldPop'; shieldPop.hidden = true;
+shieldPop.setAttribute('role', 'dialog');
+shieldPop.setAttribute('aria-label', '本机状态');
+document.body.appendChild(shieldPop);
 function paintLink(m) {
   const lines = window.JVTruth ? JVTruth.linkLines(m && m.type === 'link' ? m : null) : ['状态未知'];
-  shieldPop.innerHTML = lines.map(t => `<div>${escapeHtml(t)}</div>`).join('');
+  shieldPop.innerHTML = '<b class="sh-title">本机状态</b>' + lines.map(t => `<div>${escapeHtml(t)}</div>`).join('');
 }
 window.paintLink = paintLink;
 paintLink(null);
 const shieldBtn = document.getElementById('btnShield');
 if (shieldBtn) {
-  const wrap = document.createElement('div');
-  wrap.className = 'menu-wrap';
-  shieldBtn.parentNode.insertBefore(wrap, shieldBtn);
-  wrap.appendChild(shieldBtn);
-  wrap.appendChild(shieldPop);
   shieldBtn.addEventListener('click', e => {
     e.stopPropagation();
     const open = shieldPop.hidden;

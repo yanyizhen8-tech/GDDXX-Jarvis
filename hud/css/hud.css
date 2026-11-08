@@ -400,7 +400,9 @@ body[data-state="listening"] .state-badge,body[data-state="thinking"] .state-bad
 #statsHolo .bar.warn i::after{background:linear-gradient(90deg,rgba(var(--sk-acc),.4),var(--amber));box-shadow:0 0 10px var(--amber)}
 #statsHolo .sh-foot{margin-top:16px;font-size:10.5px;color:var(--ink-3);letter-spacing:.5px;display:flex;justify-content:space-between}
 @media (prefers-reduced-motion:reduce){#statsHolo,#statsHolo::before,#statsHolo .sh-grid div,#statsHolo .bar i::after{transition:none;animation:none}}
-.shield-pop{position:absolute;right:0;top:44px;width:280px;padding:12px 14px;border:1px solid var(--line-2);background:rgba(var(--sk-pnl),.94);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:7;font-size:12px;line-height:1.55;color:var(--ink-2)}
-.shield-pop[hidden]{display:none}
-.shield-pop div + div{margin-top:4px}
+#shieldPop{position:fixed;z-index:50;top:64px;right:max(24px,env(safe-area-inset-right,0px));width:min(320px,calc(100vw - 36px));max-height:min(420px,calc(100vh - 88px));overflow:auto;box-sizing:border-box;padding:14px 16px 12px;border:1px solid rgba(127,219,255,.32);border-radius:10px;background-color:#061018;color:#dceff7;box-shadow:0 16px 40px rgba(0,0,0,.72);font-size:13px;line-height:1.55;letter-spacing:.01em}
+#shieldPop[hidden]{display:none}
+#shieldPop .sh-title{display:block;margin:0 0 8px;font-weight:500;font-size:11px;letter-spacing:.2em;color:#9fd7ea}
+#shieldPop div{margin:0;padding:7px 0;border-top:1px solid rgba(127,219,255,.14)}
+#shieldPop div:first-of-type{border-top:0}
 .agent.off{opacity:.42}.agent .name small{font-family:var(--f-cn);font-size:11px;color:var(--ink-3);margin-left:8px;letter-spacing:0}

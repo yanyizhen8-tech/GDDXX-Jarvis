@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../hud/css/hud.css">
+<style>body{width:100vw;height:100vh}</style>
+</head><body>
+<div class="hud">
+  <header class="top">
+    <div class="brand"><b>J.A.R.V.I.S</b><small>Personal<br>Local Agent</small></div>
+    <span class="sep"></span>
+    <div class="clock"><b>00:39</b><span>11月9日 周一</span></div>
+    <span class="sep"></span>
+    <div class="motto"><span>随时待命，只为你一人</span></div>
+    <span class="grow"></span>
+    <div class="stats"><span>LOCAL<b class="on">● ON</b></span><span>CPU<b>19%</b></span><span>MEM<b>66%</b></span><span>NET<b id="net">122KB/s</b></span></div>
+    <div class="icons"><button class="icon-btn" type="button">搜</button><button class="icon-btn" id="holoLibBtn" type="button">3D 拆解</button></div>
+  </header>
+  <div class="body">
+    <aside class="col left">
+      <section class="panel" id="pAgents"><h2>Agent 调度</h2>
+        <div class="agents">
+          <button class="agent" type="button"><span class="ring"></span><span><span class="name">BRAIN<small>大脑</small></span><span class="desc">未安装 DeepSeek Harness</span></span><canvas></canvas><span class="dot"></span></button>
+          <button class="agent" type="button"><span class="ring"></span><span><span class="name">JOBS<small>后台任务</small></span><span class="desc">未安装 DeepSeek Harness</span></span><canvas></canvas><span class="dot"></span></button>
+          <button class="agent" type="button"><span class="ring"></span><span><span class="name">LEARNING<small>学习</small></span><span class="desc">还没有要学的</span></span><canvas></canvas><span class="dot"></span></button>
+          <button class="agent" type="button"><span class="ring"></span><span><span class="name">REVIEW<small>复盘</small></span><span class="desc">每晚 1 点复盘当天</span></span><canvas></canvas><span class="dot"></span></button>
+        </div>
+      </section>
+      <section class="panel" id="pReport"><h2>工作汇报</h2><div class="report-top"><div class="gauge"></div><div class="done"><span>0 / 0<em>今天没有任务</em></span></div></div><ul class="tasks"><li class="new"><span>还没有任务，告诉我今天要做什么</span></li></ul></section>
+      <section class="panel"><div class="wave-tabs"><button>AGENT</button><button>SYSTEM</button></div><canvas id="wave"></canvas><div class="state-line"><span id="stateText">已暂停聆听 · 可以打字</span></div></section>
+    </aside>
+    <div class="core-hit"></div>
+    <aside class="col right">
+      <section class="panel" id="pWeather"><h2>天气与出行</h2><div class="wx"><div class="wx-now"><div class="wx-big"><b>—<span class="deg">°</span></b></div><span>天气未配置</span></div></div><div class="trip"><div><b>还没有路线</b><span>未配置高德</span></div></div><canvas id="route"></canvas></section>
+      <section class="panel" id="pSched"><h2>今日安排</h2><ul class="sched"><li><span class="t">今天</span><span><b>还没有安排</b></span></li></ul></section>
+    </aside>
+  </div>
+  <footer class="bottom">
+    <div class="left-foot"><div class="sig">让复杂的生活，变得简单一点。</div></div>
+    <div class="command"><div class="talk-ui" style="position:static;opacity:1;pointer-events:auto;transform:none"><div class="subtitle" id="subtitle">设备已打开，但没有输入电平</div><div class="chips" id="chips"><button class="chip" type="button">今天有什么安排？</button><button class="chip" type="button">明天天气怎么样？</button><button class="chip" type="button">拆开一台发动机给我看看</button><button class="chip" type="button">进入待机</button></div><form class="bar-in"><input id="cmd" value=""><span class="kbd">HOLD SPACE</span><button class="mic" type="button">麦</button></form></div></div>
+    <div class="meters-wrap"><div class="meters"><div class="meter">DATA<canvas></canvas></div></div></div>
+  </footer>
+</div>
+<pre id="measure"></pre>
+<script>
+const box = el => { const r = el.getBoundingClientRect(); return { t: Math.round(r.top), b: Math.round(r.bottom), l: Math.round(r.left), w: Math.round(r.width), h: Math.round(r.height) }; };
+const name = document.querySelector('.agent .name');
+const report = document.getElementById('pReport');
+const col = document.querySelector('.col.left');
+const input = document.getElementById('cmd');
+const stats = document.querySelector('.stats');
+const desc = document.querySelector('.agent .desc');
+const canvas = document.querySelector('.agent canvas');
+const bar = document.querySelector('.bar-in');
+document.getElementById('measure').textContent = JSON.stringify({
+  w: innerWidth, h: innerHeight,
+  name: box(name), desc: box(desc), report: box(report), col: box(col), input: box(input), bar: box(bar), stats: box(stats),
+  nameClip: name.scrollWidth > name.clientWidth + 2,
+  descClip: desc.scrollWidth > desc.clientWidth + 2,
+  canvas: getComputedStyle(canvas).display,
+  colScroll: col.scrollHeight > col.clientHeight + 2,
+  reportPast: Math.round(report.getBoundingClientRect().bottom - col.getBoundingClientRect().bottom),
+  inputOnScreen: input.getBoundingClientRect().bottom <= innerHeight + 1,
+  chips: box(document.getElementById('chips')),
+  command: box(document.querySelector('.command')),
+  chipsInside: document.getElementById('chips').getBoundingClientRect().right <= document.querySelector('.command').getBoundingClientRect().right + 1,
+  lastChipReachable: document.querySelector('#chips .chip:last-child').getBoundingClientRect().right <= document.getElementById('chips').getBoundingClientRect().right + document.getElementById('chips').scrollWidth - document.getElementById('chips').clientWidth + 2
+});
+</script>
+</body></html>

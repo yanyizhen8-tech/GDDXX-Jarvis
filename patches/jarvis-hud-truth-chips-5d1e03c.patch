@@ -1,0 +1,52 @@
+diff --git a/hud/css/hud.css b/hud/css/hud.css
+index d9d8520..ed0c975 100644
+--- a/hud/css/hud.css
++++ b/hud/css/hud.css
+@@ -354,7 +354,8 @@ body[data-state="listening"] .state-badge,body[data-state="thinking"] .state-bad
+   #route{height:64px}
+   .subtitle{height:64px}
+   .timeline{height:28px;margin-bottom:16px}
+-  .chips{flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;max-width:100%}
++  .talk-ui{min-width:0;max-width:100%}
++  .chips{flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;width:100%;min-width:0;max-width:100%;box-sizing:border-box}
+   .chip{flex:none}
+   #voiceMeter{top:14px;max-width:36vw;font-size:11px}
+   #meterHeard,#meterHeard.warn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(240px,28vw);display:inline-block;vertical-align:middle}
+diff --git a/tests/min_layout_fixture.html b/tests/min_layout_fixture.html
+index 8e5f82c..b58487c 100644
+--- a/tests/min_layout_fixture.html
++++ b/tests/min_layout_fixture.html
+@@ -35,7 +35,7 @@
+   </div>
+   <footer class="bottom">
+     <div class="left-foot"><div class="sig">让复杂的生活，变得简单一点。</div></div>
+-    <div class="command"><div class="talk-ui" style="position:static;opacity:1;pointer-events:auto;transform:none"><div class="subtitle" id="subtitle">设备已打开，但没有输入电平</div><div class="chips"><button class="chip" type="button">今天有什么安排？</button><button class="chip" type="button">进入待机</button></div><form class="bar-in"><input id="cmd" value=""><span class="kbd">HOLD SPACE</span><button class="mic" type="button">麦</button></form></div></div>
++    <div class="command"><div class="talk-ui" style="position:static;opacity:1;pointer-events:auto;transform:none"><div class="subtitle" id="subtitle">设备已打开，但没有输入电平</div><div class="chips" id="chips"><button class="chip" type="button">今天有什么安排？</button><button class="chip" type="button">明天天气怎么样？</button><button class="chip" type="button">拆开一台发动机给我看看</button><button class="chip" type="button">进入待机</button></div><form class="bar-in"><input id="cmd" value=""><span class="kbd">HOLD SPACE</span><button class="mic" type="button">麦</button></form></div></div>
+     <div class="meters-wrap"><div class="meters"><div class="meter">DATA<canvas></canvas></div></div></div>
+   </footer>
+ </div>
+@@ -58,7 +58,11 @@ document.getElementById('measure').textContent = JSON.stringify({
+   canvas: getComputedStyle(canvas).display,
+   colScroll: col.scrollHeight > col.clientHeight + 2,
+   reportPast: Math.round(report.getBoundingClientRect().bottom - col.getBoundingClientRect().bottom),
+-  inputOnScreen: input.getBoundingClientRect().bottom <= innerHeight + 1
++  inputOnScreen: input.getBoundingClientRect().bottom <= innerHeight + 1,
++  chips: box(document.getElementById('chips')),
++  command: box(document.querySelector('.command')),
++  chipsInside: document.getElementById('chips').getBoundingClientRect().right <= document.querySelector('.command').getBoundingClientRect().right + 1,
++  lastChipReachable: document.querySelector('#chips .chip:last-child').getBoundingClientRect().right <= document.getElementById('chips').getBoundingClientRect().right + document.getElementById('chips').scrollWidth - document.getElementById('chips').clientWidth + 2
+ });
+ </script>
+ </body></html>
+diff --git a/tests/test_hud_truth.js b/tests/test_hud_truth.js
+index 952c3e6..5aa4094 100644
+--- a/tests/test_hud_truth.js
++++ b/tests/test_hud_truth.js
+@@ -187,6 +187,7 @@ assert(!band.includes('.stats{display:none}'), 'CPU MEM NET stay visible at the
+ assert(band.includes('#meterHeard,#meterHeard.warn{white-space:nowrap'), 'level warning does not wrap into a tiny block');
+ assert(/body\.demo #liveCtl\{top:16px\}/.test(css), '3D control offset stays');
+ const win = fs.readFileSync(path.join(__dirname, '..', 'app', 'window.py'), 'utf8');
++assert(band.includes('.chips{flex-wrap:nowrap') && band.includes('min-width:0'), 'suggestion row scrolls inside the center column');
+ assert(/min_size=\(1100,\s*700\)/.test(win), 'minimum window is unchanged');
+ assert(/width=1440,\s*height=900/.test(win), 'default window is unchanged');
+ 

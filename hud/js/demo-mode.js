@@ -13,6 +13,7 @@ function demoExit() {
   try { if (RD && RD.state.on) RD.hide(); } catch (_) {}
   try { if (OP && OP.state.on) OP.hide(); } catch (_) {}
   try { if (EW) EW.hide(); } catch (_) {}
+  try { if (window.cameraSync) cameraSync(true); } catch (_) {}
 }
 demoBack.addEventListener('click', demoExit);
 addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('demo')) demoExit(); });

@@ -34,6 +34,9 @@ def open_camera(want=lambda: True, send=lambda m: None, backend=None):
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             ok, frame = cap.read()
             if ok and frame is not None:
+                if not want():
+                    cap.release()
+                    return None
                 return cap
         cap.release()
         if attempt == 0:

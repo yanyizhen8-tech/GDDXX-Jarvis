@@ -1,0 +1,194 @@
+diff --git a/docs/mac-hud-truth-followup.md b/docs/mac-hud-truth-followup.md
+new file mode 100644
+index 0000000..8f9844a
+--- /dev/null
++++ b/docs/mac-hud-truth-followup.md
+@@ -0,0 +1,28 @@
++# Follow-up patch (standby chip and status card)
++
++Apply this only on a tree that already has the first HUD truth patch. That tree matches commit `5be3ead8927d548ed348d3f4437638bdac6b3357`, including when those edits are still uncommitted on top of `7c36f0634005996b8d049569cb5ce8ee541f0671`.
++
++Do not re-apply `patches/jarvis-hud-truth-7c36f06.patch`. Do not reset the worktree. Do not touch the venv, model files, settings, or desktop shortcut.
++
++```bash
++cd /Users/a222/GDDXX-Jarvis
++git apply --check --verbose /path/to/jarvis-hud-truth-followup-5be3ead.patch
++git apply --verbose /path/to/jarvis-hud-truth-followup-5be3ead.patch
++"/Users/a222/Library/Application Support/Jarvis/venv/bin/python" /Users/a222/GDDXX-Jarvis/app/launch.py
++```
++
++If `--check` fails, stop. The first patch's files differ from `5be3ead`. Send a sanitized diff of only the conflicting files.
++
++## Rollback of this follow-up only
++
++```bash
++cd /Users/a222/GDDXX-Jarvis
++git apply -R --check /path/to/jarvis-hud-truth-followup-5be3ead.patch && git apply -R /path/to/jarvis-hud-truth-followup-5be3ead.patch
++```
++
++This returns the dashboard code to the first patch. It does not remove the first patch and it does not restore the backup at `/Users/a222/Jarvis修复备份/20261108-2330/`. Start `app/launch.py` the same way afterward.
++
++## What it changes
++
++- The 进入待机 chip, and the same phrase typed in the box, only hides the local panels. The connected window does not send a chat message, so the language model is not called. Other chips still send. A spoken wake command is unchanged.
++- The shield status card is `position: fixed` on the document, above the dashboard columns, with an opaque `#061018` fill so the weather labels cannot show through.
+diff --git a/hud/css/hud.css b/hud/css/hud.css
+index b4f4968..bc1086f 100644
+--- a/hud/css/hud.css
++++ b/hud/css/hud.css
+@@ -400,7 +400,9 @@ body[data-state="listening"] .state-badge,body[data-state="thinking"] .state-bad
+ #statsHolo .bar.warn i::after{background:linear-gradient(90deg,rgba(var(--sk-acc),.4),var(--amber));box-shadow:0 0 10px var(--amber)}
+ #statsHolo .sh-foot{margin-top:16px;font-size:10.5px;color:var(--ink-3);letter-spacing:.5px;display:flex;justify-content:space-between}
+ @media (prefers-reduced-motion:reduce){#statsHolo,#statsHolo::before,#statsHolo .sh-grid div,#statsHolo .bar i::after{transition:none;animation:none}}
+-.shield-pop{position:absolute;right:0;top:44px;width:280px;padding:12px 14px;border:1px solid var(--line-2);background:rgba(var(--sk-pnl),.94);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:7;font-size:12px;line-height:1.55;color:var(--ink-2)}
+-.shield-pop[hidden]{display:none}
+-.shield-pop div + div{margin-top:4px}
++#shieldPop{position:fixed;z-index:50;top:64px;right:max(24px,env(safe-area-inset-right,0px));width:min(320px,calc(100vw - 36px));max-height:min(420px,calc(100vh - 88px));overflow:auto;box-sizing:border-box;padding:14px 16px 12px;border:1px solid rgba(127,219,255,.32);border-radius:10px;background-color:#061018;color:#dceff7;box-shadow:0 16px 40px rgba(0,0,0,.72);font-size:13px;line-height:1.55;letter-spacing:.01em}
++#shieldPop[hidden]{display:none}
++#shieldPop .sh-title{display:block;margin:0 0 8px;font-weight:500;font-size:11px;letter-spacing:.2em;color:#9fd7ea}
++#shieldPop div{margin:0;padding:7px 0;border-top:1px solid rgba(127,219,255,.14)}
++#shieldPop div:first-of-type{border-top:0}
+ .agent.off{opacity:.42}.agent .name small{font-family:var(--f-cn);font-size:11px;color:var(--ink-3);margin-left:8px;letter-spacing:0}
+diff --git a/hud/js/live.js b/hud/js/live.js
+index 4d5fdad..877b22c 100644
+--- a/hud/js/live.js
++++ b/hud/js/live.js
+@@ -78,13 +78,11 @@ function liveSend(obj) { if (live && live.readyState === 1) { live.send(JSON.str
+ window.liveSend = liveSend;
+ const demoHandle = handle;
+ handle = q => {
+-  q = q.trim(); if (!q) return;
+-  if (window.JVTruth && JVTruth.isStandby(q)) {
+-    if (liveSend({ type: 'text', text: q })) { openTalk(); typeOut('you', q, 12); }
+-    try { dormNow(); } catch (_) {}
+-    return;
+-  }
+-  if (liveSend({ type: 'text', text: q })) { openTalk(); typeOut('you', q, 12); } else demoHandle(q);
++  const d = window.JVTruth ? JVTruth.textDispatch(q) : { send: null, local: null };
++  if (d.local === 'dorm') { try { dormNow(); } catch (_) {} return; }
++  if (!d.send) return;
++  if (liveSend(d.send)) { openTalk(); typeOut('you', d.send.text, 12); }
++  else demoHandle(d.send.text);
+ };
+ addEventListener('keydown', e => { if (e.key === 'Escape') liveSend({ type: 'interrupt' }); }, true);
+ const demoStart = startListen, demoStop = stopListen;
+@@ -128,20 +126,18 @@ startListen = () => { if (!live) return demoStart(); openTalk(); clearInterval(t
+ ['#mic', '#btnMic'].forEach(q => { const b = document.querySelector(q); if (b) b.addEventListener('click', e => { if (live) { e.stopImmediatePropagation(); listenToggle(); } }, true); });
+ stopListen = () => { if (!live) demoStop(); };
+ const shieldPop = document.createElement('div');
+-shieldPop.id = 'shieldPop'; shieldPop.className = 'shield-pop'; shieldPop.hidden = true;
++shieldPop.id = 'shieldPop'; shieldPop.hidden = true;
++shieldPop.setAttribute('role', 'dialog');
++shieldPop.setAttribute('aria-label', '本机状态');
++document.body.appendChild(shieldPop);
+ function paintLink(m) {
+   const lines = window.JVTruth ? JVTruth.linkLines(m && m.type === 'link' ? m : null) : ['状态未知'];
+-  shieldPop.innerHTML = lines.map(t => `<div>${escapeHtml(t)}</div>`).join('');
++  shieldPop.innerHTML = '<b class="sh-title">本机状态</b>' + lines.map(t => `<div>${escapeHtml(t)}</div>`).join('');
+ }
+ window.paintLink = paintLink;
+ paintLink(null);
+ const shieldBtn = document.getElementById('btnShield');
+ if (shieldBtn) {
+-  const wrap = document.createElement('div');
+-  wrap.className = 'menu-wrap';
+-  shieldBtn.parentNode.insertBefore(wrap, shieldBtn);
+-  wrap.appendChild(shieldBtn);
+-  wrap.appendChild(shieldPop);
+   shieldBtn.addEventListener('click', e => {
+     e.stopPropagation();
+     const open = shieldPop.hidden;
+diff --git a/hud/js/talk.js b/hud/js/talk.js
+index 0be7951..451d3c0 100644
+--- a/hud/js/talk.js
++++ b/hud/js/talk.js
+@@ -33,8 +33,10 @@ function respond(q) {
+ 
+ let busy = false;
+ let handle = function (q) {
+-  q = q.trim(); if (!q) return;
+-  if (window.JVTruth && JVTruth.isStandby(q)) { try { dormNow(); } catch (_) {} return; }
++  const d = window.JVTruth ? JVTruth.textDispatch(q) : { send: String(q || '').trim() ? { type: 'text', text: String(q).trim() } : null, local: null };
++  if (d.local === 'dorm') { try { dormNow(); } catch (_) {} return; }
++  if (!d.send) return;
++  q = d.send.text;
+   try { speechSynthesis.cancel(); } catch (_) {}
+   busy = true;
+   typeOut('you', q, 18, () => {
+diff --git a/hud/js/truth.js b/hud/js/truth.js
+index dcdffee..c40032d 100644
+--- a/hud/js/truth.js
++++ b/hud/js/truth.js
+@@ -129,6 +129,14 @@
+     if (!s || /不要|别|取消|退出待机|醒来|awake/i.test(s)) return false;
+     return /进入待机|^待机$|待机模式|^standby$|go to standby/i.test(s);
+   }
++  /* Explicit standby from the chip or the text box. Local panels only: send stays null
++     so a connected window does not hand the phrase to the language model. */
++  function textDispatch(q) {
++    const text = String(q || '').trim();
++    if (!text) return { send: null, local: null };
++    if (isStandby(text)) return { send: null, local: 'dorm' };
++    return { send: { type: 'text', text: text }, local: null };
++  }
+   function offlineReply(q) {
+     const s = String(q || '');
+     if (/安排|日程|会议|今天.*(干|做)|几点/.test(s))
+@@ -161,6 +169,6 @@
+   }
+   root.JVTruth = {
+     rate, clock, weatherView, tripView, sysView, pushSeries, seriesValues, seriesLength, resetSeries,
+-    agentLevel, waveLabel, agentAction, isStandby, offlineReply, micOffline, linkLines
++    agentLevel, waveLabel, agentAction, isStandby, textDispatch, offlineReply, micOffline, linkLines
+   };
+ })(typeof globalThis !== 'undefined' ? globalThis : this);
+diff --git a/tests/test_hud_truth.js b/tests/test_hud_truth.js
+index ac5a8e0..c799666 100644
+--- a/tests/test_hud_truth.js
++++ b/tests/test_hud_truth.js
+@@ -79,4 +79,45 @@ assert(liveLines.some(l => l.includes('高德') && l.includes('未配置')), liv
+ assert(liveLines.some(l => l.includes('未安装')), 'harness');
+ assert(!liveLines.some(l => /key|token|http/i.test(l)), liveLines.join('|'));
+ 
++/* Connected standby is local only. A fake sender records every payload the dispatcher would hand it. */
++function connectedHandle(q, liveSend) {
++  const d = T.textDispatch(q);
++  if (d.local === 'dorm') return 'dorm';
++  if (!d.send) return 'drop';
++  liveSend(d.send);
++  return 'sent';
++}
++let sent = [];
++const liveSend = (obj) => { sent.push(obj); };
++assert(connectedHandle('进入待机', liveSend) === 'dorm' && sent.length === 0, 'chip must not send while connected');
++assert(connectedHandle('进入待机模式', liveSend) === 'dorm' && sent.length === 0, 'standby phrase');
++assert(connectedHandle('standby', liveSend) === 'dorm' && sent.length === 0, 'english standby');
++assert(connectedHandle('明天天气怎么样？', liveSend) === 'sent' && sent.length === 1, 'other chips still send');
++assert(sent[0].type === 'text' && sent[0].text === '明天天气怎么样？', JSON.stringify(sent));
++sent = [];
++assert(connectedHandle('不要进入待机', liveSend) === 'sent' && sent.length === 1, 'negated standby is still a chat line');
++assert(T.textDispatch('进入待机').send === null, 'send field stays null');
++
++const liveSrc = fs.readFileSync(path.join(__dirname, '..', 'hud', 'js', 'live.js'), 'utf8');
++const talkSrc = fs.readFileSync(path.join(__dirname, '..', 'hud', 'js', 'talk.js'), 'utf8');
++const handleAt = liveSrc.indexOf('handle = q =>');
++const handleFn = liveSrc.slice(handleAt, liveSrc.indexOf('addEventListener', handleAt));
++assert(handleFn.indexOf("d.local === 'dorm'") !== -1 && handleFn.indexOf("d.local === 'dorm'") < handleFn.indexOf('liveSend'), handleFn);
++assert(!/type:\s*'text'/.test(handleFn), 'live handle must not build its own chat payload');
++assert(liveSrc.includes('document.body.appendChild(shieldPop)'), 'status card is outside the header grid');
++assert(talkSrc.includes('JVTruth.textDispatch'), 'offline path uses the same dispatcher');
++
++const css = fs.readFileSync(path.join(__dirname, '..', 'hud', 'css', 'hud.css'), 'utf8');
++const rule = (css.match(/#shieldPop\{[^}]+\}/) || [])[0] || '';
++assert(rule, 'missing #shieldPop rule');
++assert(/position:\s*fixed/.test(rule), rule);
++const z = /z-index:\s*(\d+)/.exec(rule);
++assert(z && Number(z[1]) >= 30, rule);
++assert(/background-color:\s*#061018/.test(rule), rule);
++assert(!/backdrop-filter/.test(rule), 'no translucent backdrop');
++assert(!/rgba\(var\(--sk-pnl\)/.test(rule), 'no variable alpha fill');
++assert(!css.includes('.shield-pop{position:absolute'), 'old transparent popover rule is gone');
++const row = (css.match(/#shieldPop div\{[^}]+\}/) || [])[0] || '';
++assert(/padding:\s*7px 0/.test(row) && /border-top:/.test(row), row);
++
+ console.log('PASS');

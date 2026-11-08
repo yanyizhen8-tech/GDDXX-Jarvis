@@ -62,6 +62,8 @@ body.demo .bar-in,body.demo .chips{opacity:0;pointer-events:none}
 #demoBack small{font-family:var(--f-latin,inherit);font-size:9.5px;letter-spacing:2px;color:rgb(var(--sk-pri))}
 #demoBack:hover{border-color:rgb(var(--sk-pri));box-shadow:0 0 14px rgba(var(--sk-pri),.25)}
 body.demo #demoBack{opacity:1;pointer-events:auto;transform:none}
+body.demo #liveCtl{top:16px}
+body.demo #voiceMeter{top:52px;max-width:60vw}
 /* Layout: full-bleed WebGL particle core behind a three-column HUD (agents | core | world), thin top status rail, bottom command bar. Single dark look by design. */
 :root{
   --sk-pri:127,219,255;
@@ -130,6 +132,7 @@ button{font:inherit;color:inherit}
 .menu-pop button b{font-weight:400;color:var(--cyan)}
 .menu-pop button[aria-pressed="false"] b{color:var(--ink-3)}
 .stats .on{color:var(--ok)}
+.stats b.off,.stats b.stale,#net.stale{color:var(--ink-3)}
 .stats b.hot{color:rgb(var(--sk-accl))}
 .stats span{white-space:nowrap}
 @media (max-width:1380px){.stats{gap:14px}.motto{display:none}}
@@ -173,7 +176,7 @@ button{font:inherit;color:inherit}
 .agent.live .ring{border:2px solid var(--c);box-shadow:0 0 18px 2px color-mix(in srgb,var(--c) 70%,transparent),inset 0 0 14px color-mix(in srgb,var(--c) 55%,transparent)}
 .agent .ring svg{width:20px;height:20px;filter:drop-shadow(0 0 5px var(--c))}
 .agent .name{font-family:var(--f-latin);font-size:16px;letter-spacing:.2px;font-weight:400;display:block}
-.agent .desc{font-size:13px;color:var(--ink-2);display:block;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.agent .desc{font-size:13px;color:var(--ink-2);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;margin-top:2px;white-space:normal;overflow:hidden;line-height:1.35}
 .agent canvas{width:72px;height:26px}
 .agent .dot{width:9px;height:9px;border-radius:50%;background:var(--c);border:2px solid color-mix(in srgb,var(--c) 35%,rgb(var(--sk-bg)));box-shadow:0 0 8px color-mix(in srgb,var(--c) 70%,transparent)}
 .agent.run .ring{border-color:var(--cyan);box-shadow:0 0 18px rgba(var(--sk-pri),.45),inset 0 0 12px rgba(var(--sk-pri),.35)}
@@ -242,6 +245,8 @@ button{font:inherit;color:inherit}
 .qr-pop svg{display:block;width:82px;height:82px;border-radius:3px}
 .qr-pop[hidden]{display:none}
 .trip .eta b{font-family:var(--f-latin);font-weight:400;font-size:21px}
+.wx-src,.wave-note{font-size:10px;letter-spacing:.08em;color:var(--ink-3);margin-top:4px}
+.wave-note{text-align:right}
 #route{width:100%;height:96px;display:block;margin-top:6px}
 
 /* schedule */
@@ -330,8 +335,31 @@ body[data-state="listening"] .mic{background:var(--cyan);color:var(--bg);box-sha
 body[data-state="listening"] .state-badge,body[data-state="thinking"] .state-badge{opacity:.85}
 
 @media (max-width:1180px){
-  .body,.bottom{grid-template-columns:280px minmax(0,1fr) 280px}
-  .stats{display:none}
+  /* The app window cannot go below 1100×700. This band keeps that size readable.
+     1440×900 is above 1180px, so the desktop layout is unchanged. */
+  .top{gap:12px}
+  .brand small{display:none}
+  .clock b{font-size:22px}
+  .stats{gap:10px;font-size:10px}
+  .body,.bottom{grid-template-columns:minmax(220px,300px) minmax(0,1fr) minmax(220px,300px);gap:16px}
+  .col{overflow-x:hidden;overflow-y:auto}
+  .panel h2{margin-bottom:12px}
+  .agent{grid-template-columns:36px minmax(0,1fr) 12px;gap:4px 10px;padding:4px 2px}
+  .agent canvas{display:none}
+  .agent .ring{width:36px;height:36px}
+  .agent .name{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .agent .desc{display:block;white-space:nowrap;text-overflow:ellipsis;-webkit-line-clamp:unset}
+  .gauge,.gauge svg{width:64px;height:64px}
+  #wave{height:48px}
+  #route{height:64px}
+  .subtitle{height:64px}
+  .timeline{height:28px;margin-bottom:16px}
+  .talk-ui{min-width:0;max-width:100%}
+  .chips{flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;width:100%;min-width:0;max-width:100%;box-sizing:border-box}
+  .chip{flex:none}
+  #voiceMeter{top:14px;max-width:36vw;font-size:11px}
+  #meterHeard,#meterHeard.warn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(240px,28vw);display:inline-block;vertical-align:middle}
+  #liveCtl{top:46px}
 }
 @media (max-width:900px){
   body{overflow-y:auto}
@@ -397,5 +425,9 @@ body[data-state="listening"] .state-badge,body[data-state="thinking"] .state-bad
 #statsHolo .bar.warn i::after{background:linear-gradient(90deg,rgba(var(--sk-acc),.4),var(--amber));box-shadow:0 0 10px var(--amber)}
 #statsHolo .sh-foot{margin-top:16px;font-size:10.5px;color:var(--ink-3);letter-spacing:.5px;display:flex;justify-content:space-between}
 @media (prefers-reduced-motion:reduce){#statsHolo,#statsHolo::before,#statsHolo .sh-grid div,#statsHolo .bar i::after{transition:none;animation:none}}
-body[data-live] .demo-tag{display:none}
+#shieldPop{position:fixed;z-index:50;top:64px;right:max(24px,env(safe-area-inset-right,0px));width:min(320px,calc(100vw - 36px));max-height:min(420px,calc(100vh - 88px));overflow:auto;box-sizing:border-box;padding:14px 16px 12px;border:1px solid rgba(127,219,255,.32);border-radius:10px;background-color:#061018;color:#dceff7;box-shadow:0 16px 40px rgba(0,0,0,.72);font-size:13px;line-height:1.55;letter-spacing:.01em}
+#shieldPop[hidden]{display:none}
+#shieldPop .sh-title{display:block;margin:0 0 8px;font-weight:500;font-size:11px;letter-spacing:.2em;color:#9fd7ea}
+#shieldPop div{margin:0;padding:7px 0;border-top:1px solid rgba(127,219,255,.14)}
+#shieldPop div:first-of-type{border-top:0}
 .agent.off{opacity:.42}.agent .name small{font-family:var(--f-cn);font-size:11px;color:var(--ink-3);margin-left:8px;letter-spacing:0}

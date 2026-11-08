@@ -1,0 +1,191 @@
+diff --git a/docs/mac-hud-truth-layout.md b/docs/mac-hud-truth-layout.md
+new file mode 100644
+index 0000000..045f7d2
+--- /dev/null
++++ b/docs/mac-hud-truth-layout.md
+@@ -0,0 +1,20 @@
++# Follow-up: teardown title and pause subtitle
++
++Apply only on a tree that matches `4f6a36f04d6c7bb26855b05e39e2aaf34b347bcd`, including when the earlier patches are still uncommitted.
++
++Do not reset. Do not re-apply earlier patches. Do not touch the venv, models, settings, or the desktop shortcut.
++
++```bash
++cd /Users/a222/GDDXX-Jarvis
++git apply --check --verbose /path/to/jarvis-hud-truth-layout-4f6a36f.patch
++git apply --verbose /path/to/jarvis-hud-truth-layout-4f6a36f.patch
++"/Users/a222/Library/Application Support/Jarvis/venv/bin/python" /Users/a222/GDDXX-Jarvis/app/launch.py
++```
++
++Rollback of this patch only:
++
++```bash
++git apply -R --check /path/to/jarvis-hud-truth-layout-4f6a36f.patch && git apply -R /path/to/jarvis-hud-truth-layout-4f6a36f.patch
++```
++
++During a hologram, the mic and tour pills move to the top edge so they no longer sit on the model title. A center line that this window wrote as microphone status follows pause and a still-silent resume. A conversation line is left as it is. Gestures stay off unless already saved on.
+diff --git a/hud/css/hud.css b/hud/css/hud.css
+index bc1086f..5924324 100644
+--- a/hud/css/hud.css
++++ b/hud/css/hud.css
+@@ -62,6 +62,7 @@ body.demo .bar-in,body.demo .chips{opacity:0;pointer-events:none}
+ #demoBack small{font-family:var(--f-latin,inherit);font-size:9.5px;letter-spacing:2px;color:rgb(var(--sk-pri))}
+ #demoBack:hover{border-color:rgb(var(--sk-pri));box-shadow:0 0 14px rgba(var(--sk-pri),.25)}
+ body.demo #demoBack{opacity:1;pointer-events:auto;transform:none}
++body.demo #liveCtl{top:16px}
+ /* Layout: full-bleed WebGL particle core behind a three-column HUD (agents | core | world), thin top status rail, bottom command bar. Single dark look by design. */
+ :root{
+   --sk-pri:127,219,255;
+diff --git a/hud/js/live.js b/hud/js/live.js
+index 9a31ca1..757b0c1 100644
+--- a/hud/js/live.js
++++ b/hud/js/live.js
+@@ -22,11 +22,11 @@ function connectVoice() {
+     if (m.type === 'state') {
+       const s = m.state === 'listening' ? 'listening' : m.state === 'thinking' ? 'thinking' : m.state === 'speaking' ? 'speaking' : 'idle';
+       setState(s);
+-      if (s === 'listening' && !sub.textContent.trim()) sub.innerHTML = '<span class="who you">YOU</span><span style="color:var(--ink-3)">正在聆听…</span>';
++      if (s === 'listening' && !sub.textContent.trim()) { delete sub.dataset.kind; sub.innerHTML = '<span class="who you">YOU</span><span style="color:var(--ink-3)">正在聆听…</span>'; }
+       if (s === 'idle') applyMicFace();
+     }
+     else if (m.type === 'screen') { if (m.mode === 'awake') { dormHold = false; dormAsked = false; wakeUI(); sleepUI(30000); } else if (state === 'speaking' || state === 'thinking') dormAsked = true; else dormNow(); }
+-    else if (m.type === 'wake') { dormHold = false; wakeUI(); clearInterval(typeTimer); openTalk(); sub.innerHTML = '<span class="who you">YOU</span><span style="color:var(--ink-3)">正在聆听…</span>'; }
++    else if (m.type === 'wake') { dormHold = false; wakeUI(); clearInterval(typeTimer); openTalk(); delete sub.dataset.kind; sub.innerHTML = '<span class="who you">YOU</span><span style="color:var(--ink-3)">正在聆听…</span>'; }
+     else if (m.type === 'you') typeOut('you', m.text, 12);
+     else if (m.type === 'jarvis') typeOut('jarvis', m.text, 40, null, m.zh);
+     else if (m.type === 'stop' || m.type === 'barge_in') clearInterval(typeTimer);
+@@ -55,7 +55,7 @@ function connectVoice() {
+     else if (m.type === 'rejected') { meterHeard.textContent += '（不是唤醒词）'; }
+     else if (m.type === 'listen') { document.body.dataset.listen = '1'; listenShow(m.on !== false); }   /* pause switch only; not proof the microphone is open */
+     else if (m.type === 'mic') { micState = m; applyMicFace(); }
+-    else if (m.type === 'holo_show' && m.ok === false) { try { openTalk(); sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(m.error || '无法投影'); } catch (_) {} }
++    else if (m.type === 'holo_show' && m.ok === false) { try { openTalk(); delete sub.dataset.kind; sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(m.error || '无法投影'); } catch (_) {} }
+     else if (m.type === 'agents') agentsUpdate(m);
+     else if (m.type === 'link') { if (window.paintLink) paintLink(m); }
+     else if (m.type === 'llm') { if (m.name) window.JV_NAME = m.name === 'sir' ? '' : m.name; if (window.ONBOARD) ONBOARD.msg(m); }
+@@ -106,6 +106,10 @@ function applyMicFace() {
+   ['#mic', '#btnMic'].forEach(q => { const b = document.querySelector(q); if (b) b.setAttribute('aria-label', face.listening ? '暂停聆听' : face.button); });
+   meterHeard.textContent = face.detail || '';
+   meterHeard.classList.toggle('warn', !!face.warn);
++  if (sub && sub.dataset.kind === 'mic' && window.JVTruth) {
++    const line = JVTruth.micSubtitle(face, true);
++    sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(line.text);
++  }
+   if (input) input.placeholder = face.placeholder;
+   if (state === 'idle' && stateText) stateText.textContent = face.status;
+   if (!face.listening) micBar.style.width = wakeBar.style.width = '0%';
+@@ -134,7 +138,8 @@ applyMicFace();
+ startListen = () => {
+   if (!live) return demoStart();
+   openTalk(); clearInterval(typeTimer);
+-  const face = window._micFace || (window.JVTruth && JVTruth.micFace({ socket: true, paused: !listening, mic: micState }));
++  const face = window._micFace || (window.JVTruth && JVTruth.micFace({ socket: true, paused: listenKnown && !listening, mic: micState }));
++  sub.dataset.kind = 'mic';
+   sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(face && face.hold ? face.hold : '麦克风状态未知');
+ };
+ ['#mic', '#btnMic'].forEach(q => { const b = document.querySelector(q); if (b) b.addEventListener('click', e => { if (live) { e.stopImmediatePropagation(); listenToggle(); } }, true); });
+diff --git a/hud/js/panels.js b/hud/js/panels.js
+index 621a1ee..4601f08 100644
+--- a/hud/js/panels.js
++++ b/hud/js/panels.js
+@@ -35,7 +35,7 @@ function agentClick(id) {
+   if (act.type === 'blocked' || act.type === 'status') {
+     try { openTalk(); } catch (_) {}
+     const line = (a && (a.desc0 || a.desc)) || act.text || '没有状态';
+-    try { sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(line); } catch (_) {}
++    try { delete sub.dataset.kind; sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(line); } catch (_) {}
+     return;
+   }
+   if (act.type === 'open-brain' && typeof brainOpen === 'function') return brainOpen();
+diff --git a/hud/js/subtitles.js b/hud/js/subtitles.js
+index e990335..9e87f92 100644
+--- a/hud/js/subtitles.js
++++ b/hud/js/subtitles.js
+@@ -75,6 +75,7 @@ function subsPlay(speed, done) {
+   }, speed);
+ }
+ function typeOut(who, text, speed = 45, done, zh) {
++  try { delete sub.dataset.kind; } catch (_) {}
+   const entry = { who, en: String(text || ''), zh: zh ? String(zh) : '', t: Date.now() };
+   const last = SUBS.log[SUBS.log.length - 1];
+   if (last && last.who === who && last.en === entry.en && Date.now() - last.t < 4000) SUBS.log.pop();   /* the same line sent twice */
+diff --git a/hud/js/talk.js b/hud/js/talk.js
+index 451d3c0..5c9b193 100644
+--- a/hud/js/talk.js
++++ b/hud/js/talk.js
+@@ -61,6 +61,7 @@ function startListen() {
+   if (state === 'listening') return;
+   try { speechSynthesis.cancel(); } catch (_) {}
+   clearInterval(typeTimer); clearInterval(listenTimer); setState('listening');
++  delete sub.dataset.kind;
+   sub.innerHTML = '<span class="who">JARVIS</span>' + escapeHtml(window.JVTruth ? JVTruth.micOffline() : '语音服务没连上，麦克风没有在听。');
+ }
+ function stopListen() {
+@@ -73,7 +74,7 @@ $('#mic').addEventListener('click', toggleListen);
+ addEventListener('keydown', e => {
+   const typing = document.activeElement === input;
+   if (e.code === 'Space' && !typing && !e.repeat && !(document.activeElement && /BUTTON/.test(document.activeElement.tagName))) { e.preventDefault(); clearTimeout(clickListen); startListen(); }
+-  else if (e.key === 'Escape') { try { speechSynthesis.cancel(); } catch (_) {} clearInterval(typeTimer); clearInterval(listenTimer); clearTimeout(clickListen); if (approvalBox && approvalBox.isConnected) approvalBox.querySelector('.no').click(); setState('idle'); sub.innerHTML = '<span class="who">JARVIS</span>好的，已停止。'; }
++  else if (e.key === 'Escape') { try { speechSynthesis.cancel(); } catch (_) {} clearInterval(typeTimer); clearInterval(listenTimer); clearTimeout(clickListen); if (approvalBox && approvalBox.isConnected) approvalBox.querySelector('.no').click(); setState('idle'); delete sub.dataset.kind; sub.innerHTML = '<span class="who">JARVIS</span>好的，已停止。'; }
+   else if ((e.key === 'k' && (e.metaKey || e.ctrlKey)) || (e.key === '/' && !typing)) { e.preventDefault(); openTalk(); input.focus(); }
+ });
+ addEventListener('keyup', e => { if (e.code === 'Space' && state === 'listening' && document.activeElement !== input) stopListen(); });
+diff --git a/hud/js/truth.js b/hud/js/truth.js
+index ab2de92..491e8f2 100644
+--- a/hud/js/truth.js
++++ b/hud/js/truth.js
+@@ -158,6 +158,17 @@
+       hold: '麦克风已打开。直接说 “Hey Jarvis”。如果没有反应，检查系统是否允许 Jarvis 使用麦克风。', listening: true };
+   }
+   /* Gesture camera is opt-in. A hologram on screen is not permission to open the camera. */
++  /* Refresh the center line only while it is a microphone status we wrote. Conversation text stays. */
++  function micSubtitle(face, owned) {
++    if (!owned) return null;
++    const text = face && face.hold ? face.hold : '';
++    return { text: text, listening: !!(face && face.listening) };
++  }
++  function demoBands(liveTop, legendTop) {
++    const live = { top: liveTop, height: 30 }, legend = { top: legendTop, height: 32 };
++    const overlap = live.top < legend.top + legend.height && legend.top < live.top + live.height;
++    return { live: live, legend: legend, overlap: overlap };
++  }
+   function cameraWant(s) {
+     s = s || {};
+     return !!(s.enabled && s.demo && (s.machine || s.earth));
+@@ -213,6 +224,6 @@
+   }
+   root.JVTruth = {
+     rate, clock, weatherView, tripView, sysView, pushSeries, seriesValues, seriesLength, resetSeries,
+-    agentLevel, waveLabel, agentAction, isStandby, textDispatch, offlineReply, micOffline, micFace, holoClick, cameraWant, linkLines
++    agentLevel, waveLabel, agentAction, isStandby, textDispatch, offlineReply, micOffline, micFace, micSubtitle, demoBands, holoClick, cameraWant, linkLines
+   };
+ })(typeof globalThis !== 'undefined' ? globalThis : this);
+diff --git a/tests/test_hud_truth.js b/tests/test_hud_truth.js
+index a2bb703..641adf9 100644
+--- a/tests/test_hud_truth.js
++++ b/tests/test_hud_truth.js
+@@ -159,4 +159,24 @@ const holoSrc = fs.readFileSync(path.join(__dirname, '..', 'hud', 'js', 'holo-li
+ assert(holoSrc.includes('JVTruth.holoClick'), 'library uses the local projector');
+ assert(!/type:\s*'text'/.test(holoSrc), 'library cards do not send chat');
+ 
++const silentMic = { ok: true, pending: false, silent: true, text: '没有输入电平' };
++const pausedSilent = T.micFace({ socket: true, paused: true, mic: silentMic });
++assert(pausedSilent.listening === false && /暂停/.test(pausedSilent.hold) && !/聆听中/.test(pausedSilent.button + pausedSilent.status + pausedSilent.hold), JSON.stringify(pausedSilent));
++const resumeSilent = T.micFace({ socket: true, paused: false, mic: silentMic });
++assert(resumeSilent.listening === false && resumeSilent.button === '无电平' && !/聆听中/.test(resumeSilent.button + resumeSilent.status + resumeSilent.hold), JSON.stringify(resumeSilent));
++assert(T.micSubtitle(pausedSilent, false) === null, 'conversation subtitle is left alone');
++assert(/暂停/.test(T.micSubtitle(pausedSilent, true).text) && T.micSubtitle(pausedSilent, true).listening === false, 'owned line follows pause');
++assert(T.micSubtitle(resumeSilent, true).listening === false && !/聆听中/.test(T.micSubtitle(resumeSilent, true).text), 'resume without level is not listening');
++
++const liveRule = (css.match(/body\.demo #liveCtl\{[^}]+\}/) || [])[0];
++const legendRule = (css.match(/\.holo-legend\{[^}]+\}/) || [])[0];
++const liveTop = /top:\s*(\d+)px/.exec(liveRule || '');
++const legendTop = /top:\s*(\d+)px/.exec(legendRule || '');
++assert(liveTop && legendTop, liveRule + ' | ' + legendRule);
++const bands = T.demoBands(Number(liveTop[1]), Number(legendTop[1]));
++assert(bands.overlap === false, JSON.stringify(bands));
++const backTop = /#demoBack\{[^}]*top:\s*(\d+)px/.exec(css);
++const handTop = /#handChip\{[^}]*top:\s*(\d+)px/.exec(handSrc);
++assert(backTop && handTop && T.demoBands(Number(backTop[1]), Number(handTop[1])).overlap === false, 'back and gesture stay apart');
++
+ console.log('PASS');

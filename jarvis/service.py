@@ -20,7 +20,7 @@ from .aec import EchoCanceller
 from .engine import VoiceEngine
 from .tts import make_speaker, SR_OUT
 from .brain import answer_pair
-from . import config, paths, sysmon, schedule, brain, memory, tools
+from . import config, paths, sysmon, schedule, brain, memory, tools, hud_truth
 
 SR_IN = models.SR
 
@@ -105,7 +105,9 @@ class Service:
         self.dec_mic, self.dec_ref = Decimator(), Decimator()
         self.speaker = make_speaker()
         self.clients = set()
-        self.mic_msg = None                    # set while no audio device can be opened
+        self.mic_state = hud_truth.mic_message(ready=None)   # pending until a stream opens or fails
+        self.mic_msg = None                    # last failure, so a reconnect can be told; cleared once audio opens
+        self._mic_fail_logged = False
         self.muted = False                     # the HUD's 暂停聆听 switch: the microphone is ignored until it is turned back on
         self.mute_reset = False                # the audio thread drops any half-heard sentence on the next block
         from . import gesture                  # hand tracking for holograms
@@ -194,21 +196,54 @@ class Service:
             log(f"schedule: {e}")
 
     # -- weather and routes (AMap plugin) -------------------------------------
-    def push_world(self):
+    def link_msg(self):
+        """What is configured, without keys, URLs, or file paths."""
         amap = tools.plugin("amap")
-        if not amap or not amap.key():
-            return
+        harness = tools.plugin("harness")
         try:
-            self.broadcast({"type": "weather", **amap.weather()})
-        except Exception as e:
-            log(f"weather: {e}")
-        try:                                    # weekday mornings: the commute to work
-            ps, now = amap.places(), time.localtime()
-            if "home" in ps and "work" in ps and now.tm_wday < 5 and 6 <= now.tm_hour < 10 and not self.trip_shown:
-                amap.LAST_ROUTE = amap.route("work")
-                self.push_trip()
-        except Exception as e:
-            log(f"commute: {e}")
+            from . import onboard
+            llm = onboard.status()
+        except Exception:
+            llm = {}
+        try:
+            harness_on = bool(harness and harness.available())
+        except Exception:
+            harness_on = False
+        return hud_truth.link_message(
+            voice=True, psutil=sysmon.psutil is not None,
+            llm=bool(llm.get("configured")), llm_provider=str(llm.get("provider") or ""),
+            amap=bool(amap and amap.key()), harness=harness_on)
+
+    def push_world(self):
+        """Weather, and a commute route on weekday mornings. Missing AMap is an explicit empty state."""
+        amap = tools.plugin("amap")
+        has_key = bool(amap and amap.key())
+        weather, err = None, ""
+        if has_key:
+            try:
+                weather = amap.weather()
+                weather = {**weather, "served_at": time.time()}
+            except Exception as e:
+                err = hud_truth.public_error(e)
+                log(f"weather: {err}")
+        sent_trip = False
+        if has_key:
+            try:                                # weekday mornings: the commute to work
+                ps, now = amap.places(), time.localtime()
+                if "home" in ps and "work" in ps and now.tm_wday < 5 and 6 <= now.tm_hour < 10 and not self.trip_shown:
+                    amap.LAST_ROUTE = amap.route("work")
+                    self.push_trip()
+                    sent_trip = True
+            except Exception as e:
+                log(f"commute: {hud_truth.public_error(e)}")
+        route = amap.LAST_ROUTE if amap else None
+        for msg in hud_truth.world_messages(has_amap=bool(amap), has_key=has_key, weather=weather,
+                                            weather_error=err, has_route=bool(route)):
+            self.broadcast(msg)
+        if route and not sent_trip:
+            # a window that connects later still sees the last real route, not the sample commute
+            slim = {k: v for k, v in route.items() if k not in ("nav_url", "holo")}
+            self.broadcast({"type": "trip", "source": "amap", **slim})
 
     def push_trip(self):
         amap = tools.plugin("amap")
@@ -227,7 +262,7 @@ class Service:
                 r["holo"]["map"] = amap.static_map(r["holo"])
             except Exception as e:
                 log(f"static map: {e}")
-        self.broadcast({"type": "trip", **{k: v for k, v in r.items() if k != "nav_url"}, "qr": qr})
+        self.broadcast({"type": "trip", "source": "amap", **{k: v for k, v in r.items() if k != "nav_url"}, "qr": qr})
 
     def harness_done(self, task, ok, answer):
         """A DeepSeek Harness job ended: let the model sum it up, then say it once nobody is mid-conversation."""
@@ -483,23 +518,29 @@ class Service:
         if status: st["status"] = str(status)
         self.mic_q.put(clean)
 
+    def publish_mic(self, msg):
+        """Send a microphone state only when it changes, so a later device loss is not hidden by the first failure."""
+        if msg == self.mic_state:
+            return False
+        self.mic_state = msg
+        self.mic_msg = None if msg.get("ok") and not msg.get("silent") else msg
+        self.broadcast(msg)
+        return True
+
     def audio_loop(self):
         try:
             i, o = _sd().default.device
             log(f"input: {sd.query_devices(i)['name']} | output: {sd.query_devices(o)['name']}")
         except Exception as e:
             log(f"device query failed: {e}")
-        warned = False
         while True:                                   # no microphone yet, or it was unplugged: keep trying
             try:
                 self.audio_run()
             except Exception as e:
-                if not warned:
+                if not self._mic_fail_logged:
                     log(f"audio device unavailable: {type(e).__name__}: {e}")
-                    self.mic_msg = {"type": "mic", "ok": False,
-                                    "text": "没有找到可用的麦克风或扬声器。接上设备后会自动重试；也可以先用文字输入。"}
-                    self.broadcast(self.mic_msg)
-                    warned = True
+                    self._mic_fail_logged = True
+                self.publish_mic(hud_truth.mic_message(ready=False))
                 time.sleep(5)
                 try:
                     if sd is not None:
@@ -510,10 +551,9 @@ class Service:
     def audio_run(self):
         last = time.time()
         with _sd().Stream(samplerate=DEV_SR, blocksize=HOP, channels=(1, 1), dtype="float32", callback=self.duplex_cb):
-            if self.mic_msg:
-                log("audio device ready")
-                self.mic_msg = None
-                self.broadcast({"type": "mic", "ok": True})
+            log("audio device ready")
+            self._mic_fail_logged = False
+            self.publish_mic(hud_truth.mic_message(ready=True, silent=False))
             while True:
                 x = self.mic_q.get()
                 if self.mute_reset:                   # paused or resumed: forget what was half heard
@@ -542,10 +582,12 @@ class Service:
                     # one line every 10 s: peak mic level before/after echo cancel and best wake score
                     st = self.stats
                     log(f"mic peak {st['raw']:.3f} -> {st['clean']:.3f} | wake best {st['wake']:.2f} | {st['status'] or 'ok'}")
-                    if st["raw"] < 1e-4:
+                    silent = st["raw"] < 1e-4
+                    if silent:
                         log("microphone is silent: check the microphone permission for Jarvis "
                             + ("(System Settings > Privacy & Security > Microphone)" if paths.IS_MAC else "(Settings > Privacy > Microphone)")
                             + " and the input device")
+                    self.publish_mic(hud_truth.mic_message(ready=True, silent=silent))
                     self.stats = {"raw": 0.0, "clean": 0.0, "wake": 0.0, "status": ""}
                     last = time.time()
 
@@ -589,9 +631,9 @@ class Service:
                 await ws.send(json.dumps(onboard.status(), ensure_ascii=False))   # no model yet: the window opens 「接入大脑」
                 from . import agents
                 await ws.send(json.dumps(agents.snapshot(), ensure_ascii=False))
-                if self.mic_msg:
-                    await ws.send(json.dumps(self.mic_msg, ensure_ascii=False))
+                await ws.send(json.dumps(self.mic_state, ensure_ascii=False))
                 await ws.send(json.dumps({"type": "listen", "on": not self.muted}))
+                await ws.send(json.dumps(self.link_msg(), ensure_ascii=False))
             except Exception:
                 pass
             threading.Thread(target=self.push_world, daemon=True).start()
@@ -619,15 +661,24 @@ class Service:
                             threading.Thread(target=em.msg, args=(msg,), daemon=True).start()
                     elif msg.get("type") == "listen":        # 暂停聆听 / 恢复聆听
                         self.set_listening(bool(msg.get("on")))
+                    elif msg.get("type") == "link":          # shield: configured or not, never the keys
+                        await ws.send(json.dumps(self.link_msg(), ensure_ascii=False))
                     elif msg.get("type") == "holo_list":     # the 3D 拆解 library asks what is stored
                         from . import hologram
                         items = await asyncio.get_running_loop().run_in_executor(None, hologram.catalog)
                         await ws.send(json.dumps({"type": "holo_list", "items": items}, ensure_ascii=False))
-                    elif msg.get("type") == "holo_show":     # a library card was clicked
+                    elif msg.get("type") == "holo_show":     # a library card was clicked; not a language-model turn
                         from . import hologram
                         if hologram.UI is None:
                             hologram.UI = self.broadcast
-                        threading.Thread(target=hologram.show_file, args=(str(msg.get("file", "")),), daemon=True).start()
+                        stem = str(msg.get("file", ""))[:80]
+                        def _show(stem=stem):
+                            try:
+                                result = hologram.show_file(stem)
+                            except Exception as e:
+                                result = {"ok": False, "error": hud_truth.public_error(e)}
+                            self.broadcast(hud_truth.holo_show_event(result, stem))
+                        threading.Thread(target=_show, daemon=True).start()
                     elif msg.get("type") == "interrupt":
                         self.on_event("stop", {})
             finally:
@@ -660,8 +711,11 @@ class Service:
                         st = sysmon.sample()
                         if st:
                             self.broadcast({"type": "sys", **st})
+                        elif not getattr(self, "_sys_missing", False):
+                            self._sys_missing = True
+                            self.broadcast({"type": "sys", **sysmon.unavailable()})
                     except Exception as e:
-                        log(f"sysmon: {e}")
+                        log(f"sysmon: {hud_truth.public_error(e)}")
                 elif os.environ.get("JARVIS_STAY_ON") != "1" and time.time() - self.seen > 20:
                     # the Jarvis window is gone (closed or crashed): stop listening until it opens again
                     log("no Jarvis window connected, stopping")

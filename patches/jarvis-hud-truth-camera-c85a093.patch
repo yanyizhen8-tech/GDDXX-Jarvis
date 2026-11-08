@@ -1,0 +1,529 @@
+diff --git a/docs/mac-hud-truth-camera.md b/docs/mac-hud-truth-camera.md
+new file mode 100644
+index 0000000..30c3797
+--- /dev/null
++++ b/docs/mac-hud-truth-camera.md
+@@ -0,0 +1,26 @@
++# Follow-up: 3D view must not open the camera
++
++Apply this only on a tree that already matches commit `c85a093af50e9b33837fb6028034bb7aa678466d`, including when the earlier HUD patches are still uncommitted on top of `7c36f0634005996b8d049569cb5ce8ee541f0671`.
++
++Do not reset. Do not re-apply the earlier patches. Do not touch the venv, model files, settings, or desktop shortcut.
++
++```bash
++cd /Users/a222/GDDXX-Jarvis
++git apply --check --verbose /path/to/jarvis-hud-truth-camera-c85a093.patch
++git apply --verbose /path/to/jarvis-hud-truth-camera-c85a093.patch
++"/Users/a222/Library/Application Support/Jarvis/venv/bin/python" /Users/a222/GDDXX-Jarvis/app/launch.py
++```
++
++If `--check` fails, stop.
++
++Rollback of this patch only:
++
++```bash
++git apply -R --check /path/to/jarvis-hud-truth-camera-c85a093.patch && git apply -R /path/to/jarvis-hud-truth-camera-c85a093.patch
++```
++
++Then start `app/launch.py` the same way.
++
++## What it changes
++
++Showing a 3D teardown no longer asks for the camera. Gesture control stays available from the chip in the teardown view, and it starts off unless this Mac already saved `jarvis.hand` as `on`. Leaving the demo, or turning the chip off, sends `camera off` immediately. An open that is still waiting is dropped and any device it already holds is released. There is no browser `getUserMedia` call. The camera is the voice service's OpenCV capture, and only after that explicit chip.
+diff --git a/hud/js/demo-mode.js b/hud/js/demo-mode.js
+index eb0ed98..6bec75e 100644
+--- a/hud/js/demo-mode.js
++++ b/hud/js/demo-mode.js
+@@ -13,6 +13,7 @@ function demoExit() {
+   try { if (RD && RD.state.on) RD.hide(); } catch (_) {}
+   try { if (OP && OP.state.on) OP.hide(); } catch (_) {}
+   try { if (EW) EW.hide(); } catch (_) {}
++  try { if (window.cameraSync) cameraSync(true); } catch (_) {}
+ }
+ demoBack.addEventListener('click', demoExit);
+ addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('demo')) demoExit(); });
+diff --git a/hud/js/hand.js b/hud/js/hand.js
+index f131788..ac5f2a5 100644
+--- a/hud/js/hand.js
++++ b/hud/js/hand.js
+@@ -11,9 +11,9 @@
+    then a V sign (index + middle out) moves it with the hand; one finger or a fist holds it still; open hand: let go
+    both hands pinching, pulled apart or together: zoom
+    a small camera window top right shows what the camera sees, the hand skeleton, and which pose was recognised */
+-const HAND = { cam: false, camSent: 0, on: true, engaged: false, still: 0, lastSeen: 0, sm: [], prev: null, status: '',
++const HAND = { cam: false, camSent: 0, on: false, engaged: false, still: 0, lastSeen: 0, sm: [], prev: null, status: '',
+   twoBase: null, zoom0: 1, zoom: null, cSince: 0, fistSince: 0, fistUsed: false, openAt: 0, actAt: 0, pointAt: 0, pointI: -2, pointSeen: 0, ptLost: 0, pt: null, grab: null, pose: '', frameAt: 0 };
+-try { HAND.on = localStorage.getItem('jarvis.hand') !== 'off'; } catch (_) {}
++try { HAND.on = localStorage.getItem('jarvis.hand') === 'on'; } catch (_) {}
+ const handStyle = document.createElement('style');
+ handStyle.textContent = `
+ #handCur{position:fixed;left:0;top:0;width:54px;height:54px;margin:-27px 0 0 -27px;border-radius:50%;pointer-events:none;z-index:60;opacity:0;
+@@ -75,19 +75,29 @@ function handChipText() {
+     : st !== 'on' ? '<b>✋</b>手势 · 正在打开摄像头…'
+     : HAND.engaged ? '<b>✋</b>手势控制中 · 放下手即可停止' : '<b>✋</b>举起手掌停一下，开始手势控制';
+ }
++function cameraSync(force) {
++  const want = window.JVTruth ? JVTruth.cameraWant({
++    enabled: HAND.on,
++    demo: document.body.classList.contains('demo'),
++    machine: !!(typeof MACH !== 'undefined' && MACH.on && MACH.mesh),
++    earth: !!(typeof EW !== 'undefined' && EW && EW.live())
++  }) : false;
++  const now = performance.now();
++  if (force || want !== HAND.cam || (want && now - HAND.camSent > 5000)) {
++    if (liveSend({ type: 'camera', on: want })) { HAND.cam = want; HAND.camSent = now; }
++  }
++  if (!want && HAND.engaged) handIdle();
++  return want;
++}
++window.cameraSync = cameraSync;
+ handChip.addEventListener('click', () => {
+   HAND.on = !HAND.on; try { localStorage.setItem('jarvis.hand', HAND.on ? 'on' : 'off'); } catch (_) {}
+-  if (!HAND.on) handIdle(); HAND.camSent = 0; handChipText();
++  if (!HAND.on) { HAND.status = ''; handIdle(); }
++  HAND.camSent = 0; cameraSync(true); handChipText();
+ });
+ handChipText();
+-/* the camera is wanted while a demo is on screen; re-sent every few seconds so a restarted voice service picks it up */
+-setInterval(() => {
+-  /* only for a machine teardown: the Starship launch and the route map are watched, not handled, and the camera costs CPU
+-     (the Starship launch stuttered with the camera on) */
+-  const want = HAND.on && document.body.classList.contains('demo') && (!!(MACH.on && MACH.mesh) || !!(typeof EW !== 'undefined' && EW && EW.live())), now = performance.now();
+-  if (want !== HAND.cam || (want && now - HAND.camSent > 5000)) { if (liveSend({ type: 'camera', on: want })) { HAND.cam = want; HAND.camSent = now; } }
+-  if (!want && HAND.engaged) handIdle();
+-}, 500);
++/* the camera is wanted only after the user turns gestures on; re-sent while they stay on so a restarted voice service picks it up */
++setInterval(() => { cameraSync(false); }, 500);
+ setInterval(() => { document.body.classList.toggle('mach', !!(MACH.on && MACH.mesh)); handCamShow(); }, 250);
+ function handIdle() {
+   HAND.engaged = false; HAND.still = 0; HAND.sm = []; HAND.prev = null; HAND.twoBase = null; HAND.zoom = null; HAND.fistSince = 0; HAND.pointI = -2; handLetGo();
+diff --git a/hud/js/truth.js b/hud/js/truth.js
+index 60df20e..ab2de92 100644
+--- a/hud/js/truth.js
++++ b/hud/js/truth.js
+@@ -157,6 +157,11 @@
+       placeholder: '说 “Hey Jarvis”，或在这里打字',
+       hold: '麦克风已打开。直接说 “Hey Jarvis”。如果没有反应，检查系统是否允许 Jarvis 使用麦克风。', listening: true };
+   }
++  /* Gesture camera is opt-in. A hologram on screen is not permission to open the camera. */
++  function cameraWant(s) {
++    s = s || {};
++    return !!(s.enabled && s.demo && (s.machine || s.earth));
++  }
+   function holoClick(file, canSend) {
+     const name = String(file || '');
+     if (!name) return { send: null, close: false, note: '没有可投影的文件' };
+@@ -208,6 +213,6 @@
+   }
+   root.JVTruth = {
+     rate, clock, weatherView, tripView, sysView, pushSeries, seriesValues, seriesLength, resetSeries,
+-    agentLevel, waveLabel, agentAction, isStandby, textDispatch, offlineReply, micOffline, micFace, holoClick, linkLines
++    agentLevel, waveLabel, agentAction, isStandby, textDispatch, offlineReply, micOffline, micFace, holoClick, cameraWant, linkLines
+   };
+ })(typeof globalThis !== 'undefined' ? globalThis : this);
+diff --git a/jarvis/gesture.py b/jarvis/gesture.py
+index d131bcc..b295f1f 100644
+--- a/jarvis/gesture.py
++++ b/jarvis/gesture.py
+@@ -44,16 +44,31 @@ def features(pts, ar=4 / 3):
+ 
+ 
+ class Tracker:
+-    def __init__(self):
++    def __init__(self, open_camera=None):
+         self.want = False
++        self.gen = 0
+         self.thread = None
+         self.lock = threading.Lock()
++        self._open_camera = open_camera
++
++    def _alive_other(self):
++        thr = self.thread
++        return bool(thr and thr.is_alive() and thr is not threading.current_thread())
+ 
+     def set(self, on):
++        """Start or stop the camera. Turning it off invalidates an open that has not finished yet."""
++        on = bool(on)
+         with self.lock:
+-            self.want = bool(on)
+-            if self.want and not (self.thread and self.thread.is_alive()):
+-                self.thread = threading.Thread(target=self._run, daemon=True)
++            if on == self.want and (not on or self._alive_other()):
++                return
++            self.gen += 1
++            gen = self.gen
++            self.want = on
++            if not on:
++                self._send({"type": "hand", "status": "off"})
++                return
++            if not self._alive_other():
++                self.thread = threading.Thread(target=self._run, args=(gen,), daemon=True)
+                 self.thread.start()
+ 
+     def _send(self, msg):
+@@ -88,27 +103,47 @@ class Tracker:
+         if ok:
+             self._send({"type": "hand_frame", "jpg": base64.b64encode(jpg.tobytes()).decode()})
+ 
+-    def _run(self):
++    def _current(self, gen):
++        return self.want and self.gen == gen
++
++    def _run(self, gen):
++        def still():
++            return self._current(gen)
+         try:
+-            import cv2
+-            from . import platforms
+-            det = platforms.hand_detector()
++            if self._open_camera is None:
++                import cv2
++                from . import platforms
++                det = platforms.hand_detector()
++                open_camera = platforms.open_camera
++            else:
++                cv2 = None
++                det = None
++                open_camera = self._open_camera
+         except Exception as e:
+             log(f"cannot start: {e}")
+-            self._send({"type": "hand", "status": "missing", "error": str(e)[:200]})
++            if self._current(gen):
++                self._send({"type": "hand", "status": "missing", "error": str(e)[:200]})
+             return
+-        cap = platforms.open_camera(lambda: self.want, self._send)
++        cap = open_camera(still, self._send)
++        if cap is not None and not still():
++            try:
++                cap.release()
++            except Exception:
++                pass
++            cap = None
+         if cap is None:
+             log("no camera")
+-            self._send({"type": "hand", "status": "no_camera"})
++            if self._current(gen):
++                self._send({"type": "hand", "status": "no_camera"})
+             return
+         log("camera on")
+-        self._send({"type": "hand", "status": "on"})
++        if self._current(gen):
++            self._send({"type": "hand", "status": "on"})
+         frames = seen = 0
+         t_log = time.time()
+         empty_at = 0.0
+         try:
+-            while self.want:
++            while self._current(gen):
+                 t0 = time.time()
+                 ok, frame = cap.read()
+                 if not ok or frame is None:
+@@ -139,9 +174,15 @@ class Tracker:
+         except Exception as e:
+             log(f"stopped: {type(e).__name__}: {e}")
+         finally:
+-            cap.release()
++            try:
++                cap.release()
++            except Exception:
++                pass
+             log("camera off")
+-            self._send({"type": "hand", "status": "off"})
++            if self._current(gen):
++                self._send({"type": "hand", "status": "off"})
++            elif self.want:
++                self.set(True)
+ 
+ 
+ TRACKER = Tracker()
+diff --git a/jarvis/hud_truth.py b/jarvis/hud_truth.py
+index 3132f75..009e040 100644
+--- a/jarvis/hud_truth.py
++++ b/jarvis/hud_truth.py
+@@ -70,6 +70,11 @@ def mic_message(*, ready, silent=False, detail=""):
+     return {"type": "mic", "ok": True, "pending": False, "silent": False, "text": ""}
+ 
+ 
++def mic_transition(prev, msg):
++    """Whether a new microphone snapshot should be sent. Repeats are dropped; a later failure is not."""
++    return msg != prev
++
++
+ def holo_show_event(result, stem):
+     """Library card result. Failure is explicit. Success is only the real show() result, not a preview."""
+     name = str(stem or "")[:80]
+diff --git a/jarvis/platforms/generic.py b/jarvis/platforms/generic.py
+index ad4c4f8..a8c2e53 100644
+--- a/jarvis/platforms/generic.py
++++ b/jarvis/platforms/generic.py
+@@ -34,6 +34,9 @@ def open_camera(want=lambda: True, send=lambda m: None, backend=None):
+             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+             ok, frame = cap.read()
+             if ok and frame is not None:
++                if not want():
++                    cap.release()
++                    return None
+                 return cap
+         cap.release()
+         if attempt == 0:
+diff --git a/jarvis/service.py b/jarvis/service.py
+index 818c441..da5713c 100644
+--- a/jarvis/service.py
++++ b/jarvis/service.py
+@@ -107,6 +107,7 @@ class Service:
+         self.clients = set()
+         self.mic_state = hud_truth.mic_message(ready=None)   # pending until a stream opens or fails
+         self.mic_msg = None                    # last failure, so a reconnect can be told; cleared once audio opens
++        self._mic_fail_logged = False
+         self.muted = False                     # the HUD's 暂停聆听 switch: the microphone is ignored until it is turned back on
+         self.mute_reset = False                # the audio thread drops any half-heard sentence on the next block
+         from . import gesture                  # hand tracking for holograms
+@@ -517,23 +518,29 @@ class Service:
+         if status: st["status"] = str(status)
+         self.mic_q.put(clean)
+ 
++    def publish_mic(self, msg):
++        """Send a microphone state only when it changes, so a later device loss is not hidden by the first failure."""
++        if msg == self.mic_state:
++            return False
++        self.mic_state = msg
++        self.mic_msg = None if msg.get("ok") and not msg.get("silent") else msg
++        self.broadcast(msg)
++        return True
++
+     def audio_loop(self):
+         try:
+             i, o = _sd().default.device
+             log(f"input: {sd.query_devices(i)['name']} | output: {sd.query_devices(o)['name']}")
+         except Exception as e:
+             log(f"device query failed: {e}")
+-        warned = False
+         while True:                                   # no microphone yet, or it was unplugged: keep trying
+             try:
+                 self.audio_run()
+             except Exception as e:
+-                if not warned:
++                if not self._mic_fail_logged:
+                     log(f"audio device unavailable: {type(e).__name__}: {e}")
+-                    self.mic_state = hud_truth.mic_message(ready=False)
+-                    self.mic_msg = self.mic_state
+-                    self.broadcast(self.mic_state)
+-                    warned = True
++                    self._mic_fail_logged = True
++                self.publish_mic(hud_truth.mic_message(ready=False))
+                 time.sleep(5)
+                 try:
+                     if sd is not None:
+@@ -545,9 +552,8 @@ class Service:
+         last = time.time()
+         with _sd().Stream(samplerate=DEV_SR, blocksize=HOP, channels=(1, 1), dtype="float32", callback=self.duplex_cb):
+             log("audio device ready")
+-            self.mic_msg = None
+-            self.mic_state = hud_truth.mic_message(ready=True, silent=False)
+-            self.broadcast(self.mic_state)
++            self._mic_fail_logged = False
++            self.publish_mic(hud_truth.mic_message(ready=True, silent=False))
+             while True:
+                 x = self.mic_q.get()
+                 if self.mute_reset:                   # paused or resumed: forget what was half heard
+@@ -581,9 +587,7 @@ class Service:
+                         log("microphone is silent: check the microphone permission for Jarvis "
+                             + ("(System Settings > Privacy & Security > Microphone)" if paths.IS_MAC else "(Settings > Privacy > Microphone)")
+                             + " and the input device")
+-                    if silent != bool(self.mic_state.get("silent")):
+-                        self.mic_state = hud_truth.mic_message(ready=True, silent=silent)
+-                        self.broadcast(self.mic_state)
++                    self.publish_mic(hud_truth.mic_message(ready=True, silent=silent))
+                     self.stats = {"raw": 0.0, "clean": 0.0, "wake": 0.0, "status": ""}
+                     last = time.time()
+ 
+diff --git a/tests/test_camera_gate.py b/tests/test_camera_gate.py
+new file mode 100644
+index 0000000..c42d4b7
+--- /dev/null
++++ b/tests/test_camera_gate.py
+@@ -0,0 +1,127 @@
++"""Gesture camera stays closed unless the user asked, and an in-flight open is released.
++
++    python tests/test_camera_gate.py
++
++No camera, no OpenCV, no microphone. Linux only; it does not mean the Mac camera was opened.
++"""
++import sys
++import threading
++import time
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
++
++from jarvis.gesture import Tracker
++
++
++class Cap:
++    def __init__(self, released):
++        self.released = released
++        self.reads = 0
++
++    def read(self):
++        self.reads += 1
++        time.sleep(0.02)
++        return True, None
++
++    def release(self):
++        self.released.append(threading.get_ident())
++
++
++def wait_until(fn, seconds=1.0):
++    end = time.time() + seconds
++    while time.time() < end:
++        if fn():
++            return True
++        time.sleep(0.01)
++    return False
++
++
++def test_turn_off_during_open_never_keeps_a_device():
++    opened = []
++    released = []
++    gate = threading.Event()
++
++    def slow_open(want, send):
++        opened.append(1)
++        gate.wait(0.5)
++        if not want():
++            return None
++        return Cap(released)
++
++    t = Tracker(open_camera=slow_open)
++    t.set(True)
++    assert wait_until(lambda: opened), "open was not started"
++    t.set(False)
++    gate.set()
++    assert wait_until(lambda: not t.want and not t._alive_other())
++    assert released == [], released
++    assert t.want is False
++
++
++def test_opened_device_is_released_once_and_a_late_start_does_not_stick():
++    released = []
++    entered = threading.Event()
++
++    def open_ready(want, send):
++        cap = Cap(released)
++        entered.set()
++        return cap if want() else None
++
++    t = Tracker(open_camera=open_ready)
++    t.set(True)
++    assert wait_until(entered.is_set)
++    assert wait_until(lambda: released == [] and t.thread and t.thread.is_alive())
++    t.set(False)
++    assert wait_until(lambda: len(released) == 1), released
++    t.set(False)
++    time.sleep(0.05)
++    assert len(released) == 1
++    assert t.want is False
++
++
++def test_second_request_while_running_does_not_open_another_camera():
++    calls = []
++    hold = threading.Event()
++
++    def open_hold(want, send):
++        calls.append(1)
++        cap = Cap([])
++        hold.wait(0.4)
++        return cap if want() else None
++
++    t = Tracker(open_camera=open_hold)
++    t.set(True)
++    assert wait_until(lambda: len(calls) == 1)
++    t.set(True)
++    time.sleep(0.05)
++    assert calls == [1], calls
++    t.set(False)
++    hold.set()
++    assert wait_until(lambda: not t._alive_other())
++
++
++def test_reenable_after_release_can_open_again():
++    calls = []
++
++    def open_ready(want, send):
++        calls.append(1)
++        return Cap([]) if want() else None
++
++    t = Tracker(open_camera=open_ready)
++    t.set(True)
++    assert wait_until(lambda: len(calls) == 1)
++    t.set(False)
++    assert wait_until(lambda: not t._alive_other())
++    t.set(True)
++    assert wait_until(lambda: len(calls) == 2), calls
++    t.set(False)
++    assert wait_until(lambda: not t._alive_other())
++
++
++if __name__ == "__main__":
++    test_turn_off_during_open_never_keeps_a_device()
++    test_opened_device_is_released_once_and_a_late_start_does_not_stick()
++    test_second_request_while_running_does_not_open_another_camera()
++    test_reenable_after_release_can_open_again()
++    print("PASS")
+diff --git a/tests/test_hud_truth.js b/tests/test_hud_truth.js
+index 669eb8c..a2bb703 100644
+--- a/tests/test_hud_truth.js
++++ b/tests/test_hud_truth.js
+@@ -143,6 +143,17 @@ assert(card.send.type === 'holo_show' && card.send.file === 'raptor-engine' && c
+ const offlineCard = T.holoClick('raptor-engine', false);
+ assert(offlineCard.send === null && offlineCard.close === false && /不能投影/.test(offlineCard.note), offlineCard.note);
+ assert(T.holoClick('', true).send === null, 'empty file');
++assert(T.cameraWant({ enabled: false, demo: true, machine: true }) === false, '3D view does not open the camera by itself');
++assert(T.cameraWant({ enabled: true, demo: true, machine: false, earth: false }) === false, 'demo without a handled scene');
++assert(T.cameraWant({ enabled: true, demo: false, machine: true }) === false, 'mesh without the demo screen');
++assert(T.cameraWant({ enabled: true, demo: true, machine: true }) === true, 'explicit gestures plus a teardown');
++assert(T.cameraWant({ enabled: true, demo: true, earth: true }) === true, 'explicit gestures plus earth');
++const handSrc = fs.readFileSync(path.join(__dirname, '..', 'hud', 'js', 'hand.js'), 'utf8');
++assert(handSrc.includes("localStorage.getItem('jarvis.hand') === 'on'"), 'gestures default off');
++assert(!/jarvis\.hand'\) !== 'off'/.test(handSrc), 'old default-on check is gone');
++assert(handSrc.includes('JVTruth.cameraWant'), 'hand loop uses the gate');
++const demoSrc = fs.readFileSync(path.join(__dirname, '..', 'hud', 'js', 'demo-mode.js'), 'utf8');
++assert(demoSrc.includes('cameraSync(true)'), 'leaving the demo asks the camera to stop');
+ 
+ const holoSrc = fs.readFileSync(path.join(__dirname, '..', 'hud', 'js', 'holo-lib.js'), 'utf8');
+ assert(holoSrc.includes('JVTruth.holoClick'), 'library uses the local projector');
+diff --git a/tests/test_hud_truth.py b/tests/test_hud_truth.py
+index d109aa3..a1820b3 100644
+--- a/tests/test_hud_truth.py
++++ b/tests/test_hud_truth.py
+@@ -73,6 +73,22 @@ def test_holo_show_event_reports_failure_and_real_success():
+     assert good == {"type": "holo_show", "ok": True, "file": "raptor-engine", "title": "Raptor"}
+ 
+ 
++def test_mic_lifecycle_repeats_drop_and_a_later_loss_is_sent():
++    pending = hud_truth.mic_message(ready=None)
++    ready = hud_truth.mic_message(ready=True)
++    silent = hud_truth.mic_message(ready=True, silent=True)
++    down = hud_truth.mic_message(ready=False)
++    cur = None
++    sent = []
++    for msg in (pending, ready, ready, silent, silent, down, down, ready):
++        if hud_truth.mic_transition(cur, msg):
++            sent.append(msg["ok"] and not msg.get("silent") and not msg.get("pending") and "ready"
++                        or ("silent" if msg.get("silent") else "down" if not msg.get("pending") else "pending"))
++            cur = msg
++    assert sent == ["pending", "ready", "silent", "down", "ready"], sent
++    assert cur == ready
++
++
+ def test_link_message_has_no_secrets():
+     msg = hud_truth.link_message(voice=True, psutil=True, llm=True, llm_provider="deepseek", amap=False, harness=False)
+     assert set(msg) == {"type", "voice", "psutil", "llm", "llm_provider", "amap", "harness"}
+@@ -110,6 +126,7 @@ def main():
+     test_weather_error_and_no_route()
+     test_live_weather_keeps_source_and_does_not_invent_aqi()
+     test_mic_message_separates_socket_from_device()
++    test_mic_lifecycle_repeats_drop_and_a_later_loss_is_sent()
+     test_holo_show_event_reports_failure_and_real_success()
+     test_link_message_has_no_secrets()
+     test_sysmon_marks_the_first_reading_and_a_real_second_one()

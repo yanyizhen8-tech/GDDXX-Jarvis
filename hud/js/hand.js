@@ -11,9 +11,9 @@
    then a V sign (index + middle out) moves it with the hand; one finger or a fist holds it still; open hand: let go
    both hands pinching, pulled apart or together: zoom
    a small camera window top right shows what the camera sees, the hand skeleton, and which pose was recognised */
-const HAND = { cam: false, camSent: 0, on: true, engaged: false, still: 0, lastSeen: 0, sm: [], prev: null, status: '',
+const HAND = { cam: false, camSent: 0, on: false, engaged: false, still: 0, lastSeen: 0, sm: [], prev: null, status: '',
   twoBase: null, zoom0: 1, zoom: null, cSince: 0, fistSince: 0, fistUsed: false, openAt: 0, actAt: 0, pointAt: 0, pointI: -2, pointSeen: 0, ptLost: 0, pt: null, grab: null, pose: '', frameAt: 0 };
-try { HAND.on = localStorage.getItem('jarvis.hand') !== 'off'; } catch (_) {}
+try { HAND.on = localStorage.getItem('jarvis.hand') === 'on'; } catch (_) {}
 const handStyle = document.createElement('style');
 handStyle.textContent = `
 #handCur{position:fixed;left:0;top:0;width:54px;height:54px;margin:-27px 0 0 -27px;border-radius:50%;pointer-events:none;z-index:60;opacity:0;
@@ -75,19 +75,29 @@ function handChipText() {
     : st !== 'on' ? '<b>✋</b>手势 · 正在打开摄像头…'
     : HAND.engaged ? '<b>✋</b>手势控制中 · 放下手即可停止' : '<b>✋</b>举起手掌停一下，开始手势控制';
 }
+function cameraSync(force) {
+  const want = window.JVTruth ? JVTruth.cameraWant({
+    enabled: HAND.on,
+    demo: document.body.classList.contains('demo'),
+    machine: !!(typeof MACH !== 'undefined' && MACH.on && MACH.mesh),
+    earth: !!(typeof EW !== 'undefined' && EW && EW.live())
+  }) : false;
+  const now = performance.now();
+  if (force || want !== HAND.cam || (want && now - HAND.camSent > 5000)) {
+    if (liveSend({ type: 'camera', on: want })) { HAND.cam = want; HAND.camSent = now; }
+  }
+  if (!want && HAND.engaged) handIdle();
+  return want;
+}
+window.cameraSync = cameraSync;
 handChip.addEventListener('click', () => {
   HAND.on = !HAND.on; try { localStorage.setItem('jarvis.hand', HAND.on ? 'on' : 'off'); } catch (_) {}
-  if (!HAND.on) handIdle(); HAND.camSent = 0; handChipText();
+  if (!HAND.on) { HAND.status = ''; handIdle(); }
+  HAND.camSent = 0; cameraSync(true); handChipText();
 });
 handChipText();
-/* the camera is wanted while a demo is on screen; re-sent every few seconds so a restarted voice service picks it up */
-setInterval(() => {
-  /* only for a machine teardown: the Starship launch and the route map are watched, not handled, and the camera costs CPU
-     (the Starship launch stuttered with the camera on) */
-  const want = HAND.on && document.body.classList.contains('demo') && (!!(MACH.on && MACH.mesh) || !!(typeof EW !== 'undefined' && EW && EW.live())), now = performance.now();
-  if (want !== HAND.cam || (want && now - HAND.camSent > 5000)) { if (liveSend({ type: 'camera', on: want })) { HAND.cam = want; HAND.camSent = now; } }
-  if (!want && HAND.engaged) handIdle();
-}, 500);
+/* the camera is wanted only after the user turns gestures on; re-sent while they stay on so a restarted voice service picks it up */
+setInterval(() => { cameraSync(false); }, 500);
 setInterval(() => { document.body.classList.toggle('mach', !!(MACH.on && MACH.mesh)); handCamShow(); }, 250);
 function handIdle() {
   HAND.engaged = false; HAND.still = 0; HAND.sm = []; HAND.prev = null; HAND.twoBase = null; HAND.zoom = null; HAND.fistSince = 0; HAND.pointI = -2; handLetGo();

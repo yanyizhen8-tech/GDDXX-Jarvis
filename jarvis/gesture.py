@@ -44,16 +44,31 @@ def features(pts, ar=4 / 3):
 
 
 class Tracker:
-    def __init__(self):
+    def __init__(self, open_camera=None):
         self.want = False
+        self.gen = 0
         self.thread = None
         self.lock = threading.Lock()
+        self._open_camera = open_camera
+
+    def _alive_other(self):
+        thr = self.thread
+        return bool(thr and thr.is_alive() and thr is not threading.current_thread())
 
     def set(self, on):
+        """Start or stop the camera. Turning it off invalidates an open that has not finished yet."""
+        on = bool(on)
         with self.lock:
-            self.want = bool(on)
-            if self.want and not (self.thread and self.thread.is_alive()):
-                self.thread = threading.Thread(target=self._run, daemon=True)
+            if on == self.want and (not on or self._alive_other()):
+                return
+            self.gen += 1
+            gen = self.gen
+            self.want = on
+            if not on:
+                self._send({"type": "hand", "status": "off"})
+                return
+            if not self._alive_other():
+                self.thread = threading.Thread(target=self._run, args=(gen,), daemon=True)
                 self.thread.start()
 
     def _send(self, msg):
@@ -88,27 +103,47 @@ class Tracker:
         if ok:
             self._send({"type": "hand_frame", "jpg": base64.b64encode(jpg.tobytes()).decode()})
 
-    def _run(self):
+    def _current(self, gen):
+        return self.want and self.gen == gen
+
+    def _run(self, gen):
+        def still():
+            return self._current(gen)
         try:
-            import cv2
-            from . import platforms
-            det = platforms.hand_detector()
+            if self._open_camera is None:
+                import cv2
+                from . import platforms
+                det = platforms.hand_detector()
+                open_camera = platforms.open_camera
+            else:
+                cv2 = None
+                det = None
+                open_camera = self._open_camera
         except Exception as e:
             log(f"cannot start: {e}")
-            self._send({"type": "hand", "status": "missing", "error": str(e)[:200]})
+            if self._current(gen):
+                self._send({"type": "hand", "status": "missing", "error": str(e)[:200]})
             return
-        cap = platforms.open_camera(lambda: self.want, self._send)
+        cap = open_camera(still, self._send)
+        if cap is not None and not still():
+            try:
+                cap.release()
+            except Exception:
+                pass
+            cap = None
         if cap is None:
             log("no camera")
-            self._send({"type": "hand", "status": "no_camera"})
+            if self._current(gen):
+                self._send({"type": "hand", "status": "no_camera"})
             return
         log("camera on")
-        self._send({"type": "hand", "status": "on"})
+        if self._current(gen):
+            self._send({"type": "hand", "status": "on"})
         frames = seen = 0
         t_log = time.time()
         empty_at = 0.0
         try:
-            while self.want:
+            while self._current(gen):
                 t0 = time.time()
                 ok, frame = cap.read()
                 if not ok or frame is None:
@@ -139,9 +174,15 @@ class Tracker:
         except Exception as e:
             log(f"stopped: {type(e).__name__}: {e}")
         finally:
-            cap.release()
+            try:
+                cap.release()
+            except Exception:
+                pass
             log("camera off")
-            self._send({"type": "hand", "status": "off"})
+            if self._current(gen):
+                self._send({"type": "hand", "status": "off"})
+            elif self.want:
+                self.set(True)
 
 
 TRACKER = Tracker()

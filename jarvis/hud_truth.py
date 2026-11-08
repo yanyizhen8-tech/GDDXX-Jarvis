@@ -70,6 +70,11 @@ def mic_message(*, ready, silent=False, detail=""):
     return {"type": "mic", "ok": True, "pending": False, "silent": False, "text": ""}
 
 
+def mic_transition(prev, msg):
+    """Whether a new microphone snapshot should be sent. Repeats are dropped; a later failure is not."""
+    return msg != prev
+
+
 def holo_show_event(result, stem):
     """Library card result. Failure is explicit. Success is only the real show() result, not a preview."""
     name = str(stem or "")[:80]

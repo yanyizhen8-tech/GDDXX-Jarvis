@@ -143,6 +143,17 @@ assert(card.send.type === 'holo_show' && card.send.file === 'raptor-engine' && c
 const offlineCard = T.holoClick('raptor-engine', false);
 assert(offlineCard.send === null && offlineCard.close === false && /不能投影/.test(offlineCard.note), offlineCard.note);
 assert(T.holoClick('', true).send === null, 'empty file');
+assert(T.cameraWant({ enabled: false, demo: true, machine: true }) === false, '3D view does not open the camera by itself');
+assert(T.cameraWant({ enabled: true, demo: true, machine: false, earth: false }) === false, 'demo without a handled scene');
+assert(T.cameraWant({ enabled: true, demo: false, machine: true }) === false, 'mesh without the demo screen');
+assert(T.cameraWant({ enabled: true, demo: true, machine: true }) === true, 'explicit gestures plus a teardown');
+assert(T.cameraWant({ enabled: true, demo: true, earth: true }) === true, 'explicit gestures plus earth');
+const handSrc = fs.readFileSync(path.join(__dirname, '..', 'hud', 'js', 'hand.js'), 'utf8');
+assert(handSrc.includes("localStorage.getItem('jarvis.hand') === 'on'"), 'gestures default off');
+assert(!/jarvis\.hand'\) !== 'off'/.test(handSrc), 'old default-on check is gone');
+assert(handSrc.includes('JVTruth.cameraWant'), 'hand loop uses the gate');
+const demoSrc = fs.readFileSync(path.join(__dirname, '..', 'hud', 'js', 'demo-mode.js'), 'utf8');
+assert(demoSrc.includes('cameraSync(true)'), 'leaving the demo asks the camera to stop');
 
 const holoSrc = fs.readFileSync(path.join(__dirname, '..', 'hud', 'js', 'holo-lib.js'), 'utf8');
 assert(holoSrc.includes('JVTruth.holoClick'), 'library uses the local projector');

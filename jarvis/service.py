@@ -107,6 +107,7 @@ class Service:
         self.clients = set()
         self.mic_state = hud_truth.mic_message(ready=None)   # pending until a stream opens or fails
         self.mic_msg = None                    # last failure, so a reconnect can be told; cleared once audio opens
+        self._mic_fail_logged = False
         self.muted = False                     # the HUD's 暂停聆听 switch: the microphone is ignored until it is turned back on
         self.mute_reset = False                # the audio thread drops any half-heard sentence on the next block
         from . import gesture                  # hand tracking for holograms
@@ -517,23 +518,29 @@ class Service:
         if status: st["status"] = str(status)
         self.mic_q.put(clean)
 
+    def publish_mic(self, msg):
+        """Send a microphone state only when it changes, so a later device loss is not hidden by the first failure."""
+        if msg == self.mic_state:
+            return False
+        self.mic_state = msg
+        self.mic_msg = None if msg.get("ok") and not msg.get("silent") else msg
+        self.broadcast(msg)
+        return True
+
     def audio_loop(self):
         try:
             i, o = _sd().default.device
             log(f"input: {sd.query_devices(i)['name']} | output: {sd.query_devices(o)['name']}")
         except Exception as e:
             log(f"device query failed: {e}")
-        warned = False
         while True:                                   # no microphone yet, or it was unplugged: keep trying
             try:
                 self.audio_run()
             except Exception as e:
-                if not warned:
+                if not self._mic_fail_logged:
                     log(f"audio device unavailable: {type(e).__name__}: {e}")
-                    self.mic_state = hud_truth.mic_message(ready=False)
-                    self.mic_msg = self.mic_state
-                    self.broadcast(self.mic_state)
-                    warned = True
+                    self._mic_fail_logged = True
+                self.publish_mic(hud_truth.mic_message(ready=False))
                 time.sleep(5)
                 try:
                     if sd is not None:
@@ -545,9 +552,8 @@ class Service:
         last = time.time()
         with _sd().Stream(samplerate=DEV_SR, blocksize=HOP, channels=(1, 1), dtype="float32", callback=self.duplex_cb):
             log("audio device ready")
-            self.mic_msg = None
-            self.mic_state = hud_truth.mic_message(ready=True, silent=False)
-            self.broadcast(self.mic_state)
+            self._mic_fail_logged = False
+            self.publish_mic(hud_truth.mic_message(ready=True, silent=False))
             while True:
                 x = self.mic_q.get()
                 if self.mute_reset:                   # paused or resumed: forget what was half heard
@@ -581,9 +587,7 @@ class Service:
                         log("microphone is silent: check the microphone permission for Jarvis "
                             + ("(System Settings > Privacy & Security > Microphone)" if paths.IS_MAC else "(Settings > Privacy > Microphone)")
                             + " and the input device")
-                    if silent != bool(self.mic_state.get("silent")):
-                        self.mic_state = hud_truth.mic_message(ready=True, silent=silent)
-                        self.broadcast(self.mic_state)
+                    self.publish_mic(hud_truth.mic_message(ready=True, silent=silent))
                     self.stats = {"raw": 0.0, "clean": 0.0, "wake": 0.0, "status": ""}
                     last = time.time()
 

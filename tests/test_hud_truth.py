@@ -73,6 +73,22 @@ def test_holo_show_event_reports_failure_and_real_success():
     assert good == {"type": "holo_show", "ok": True, "file": "raptor-engine", "title": "Raptor"}
 
 
+def test_mic_lifecycle_repeats_drop_and_a_later_loss_is_sent():
+    pending = hud_truth.mic_message(ready=None)
+    ready = hud_truth.mic_message(ready=True)
+    silent = hud_truth.mic_message(ready=True, silent=True)
+    down = hud_truth.mic_message(ready=False)
+    cur = None
+    sent = []
+    for msg in (pending, ready, ready, silent, silent, down, down, ready):
+        if hud_truth.mic_transition(cur, msg):
+            sent.append(msg["ok"] and not msg.get("silent") and not msg.get("pending") and "ready"
+                        or ("silent" if msg.get("silent") else "down" if not msg.get("pending") else "pending"))
+            cur = msg
+    assert sent == ["pending", "ready", "silent", "down", "ready"], sent
+    assert cur == ready
+
+
 def test_link_message_has_no_secrets():
     msg = hud_truth.link_message(voice=True, psutil=True, llm=True, llm_provider="deepseek", amap=False, harness=False)
     assert set(msg) == {"type", "voice", "psutil", "llm", "llm_provider", "amap", "harness"}
@@ -110,6 +126,7 @@ def main():
     test_weather_error_and_no_route()
     test_live_weather_keeps_source_and_does_not_invent_aqi()
     test_mic_message_separates_socket_from_device()
+    test_mic_lifecycle_repeats_drop_and_a_later_loss_is_sent()
     test_holo_show_event_reports_failure_and_real_success()
     test_link_message_has_no_secrets()
     test_sysmon_marks_the_first_reading_and_a_real_second_one()

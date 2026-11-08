@@ -157,6 +157,11 @@
       placeholder: '说 “Hey Jarvis”，或在这里打字',
       hold: '麦克风已打开。直接说 “Hey Jarvis”。如果没有反应，检查系统是否允许 Jarvis 使用麦克风。', listening: true };
   }
+  /* Gesture camera is opt-in. A hologram on screen is not permission to open the camera. */
+  function cameraWant(s) {
+    s = s || {};
+    return !!(s.enabled && s.demo && (s.machine || s.earth));
+  }
   function holoClick(file, canSend) {
     const name = String(file || '');
     if (!name) return { send: null, close: false, note: '没有可投影的文件' };
@@ -208,6 +213,6 @@
   }
   root.JVTruth = {
     rate, clock, weatherView, tripView, sysView, pushSeries, seriesValues, seriesLength, resetSeries,
-    agentLevel, waveLabel, agentAction, isStandby, textDispatch, offlineReply, micOffline, micFace, holoClick, linkLines
+    agentLevel, waveLabel, agentAction, isStandby, textDispatch, offlineReply, micOffline, micFace, holoClick, cameraWant, linkLines
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
